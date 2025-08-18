@@ -7,13 +7,13 @@ blueprint:
     ##  iOS Multi-Action Notification (0.01)
     
     This blueprint allows you to send iOS actionable notifications with up to 4 customizable buttons, each supporting:
-    
-   - Custom button text
-   - SF Symbol icons (optional, iOS only)
-   - Destructive styling (red button)
-   - Authentication required (Face ID / Touch ID / Passcode)
-   - Foreground flag (launches the HA app when tapped)
-   - Custom action sequence (run automations, services, etc.)
+
+    - Custom button text
+    - SF Symbol icons (optional, iOS only)
+    - Destructive styling (red button)
+    - Authentication required (Face ID / Touch ID / Passcode)
+    - Foreground flag (launches the HA app when tapped)
+    - Custom action sequence (run automations, services, etc.)
     
     ⚠️ Important:
     This blueprint was built for iOS devices using the official Home Assistant app.
