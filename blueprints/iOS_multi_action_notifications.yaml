@@ -191,4 +191,14 @@ sequence:
         event_type: mobile_app_notification_action
         event_data:
           action: "{{ action_4_id }}"
-        enabled: "{{ use_a4_
+        enabled: "{{ use_a4 }}"
+
+  - choose:
+      - conditions: "{{ wait.trigger.event.data.action == action_1_id }}"
+        sequence: !input action_1_sequence
+      - conditions: "{{ wait.trigger.event.data.action == action_2_id }}"
+        sequence: !input action_2_sequence
+      - conditions: "{{ use_a3 and wait.trigger.event.data.action == action_3_id }}"
+        sequence: !input action_3_sequence
+      - conditions: "{{ use_a4 and wait.trigger.event.data.action == action_4_id }}"
+        sequence: !input action_4_sequence
