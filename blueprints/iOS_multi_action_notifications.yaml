@@ -1,0 +1,189 @@
+blueprint:
+  name: iOS Multi-Action Notification
+  description: >
+    This blueprint allows you to send iOS actionable notifications with up to 4 customizable buttons, each supporting:
+    
+   - Custom button text
+   - SF Symbol icons (optional, iOS only)
+   - Destructive styling (red button)
+   - Authentication required (Face ID / Touch ID / Passcode)
+   - Foreground flag (launches the HA app when tapped)
+   - Custom action sequence (run automations, services, etc.)
+    
+    ⚠️ Important:
+    This blueprint was built for iOS devices using the official Home Assistant app.
+    Android devices will receive the notification, but icons, destructive styling, authentication, and foreground flags will be ignored.
+    Supports critical notifications (if enabled in iOS settings and your HA app supports them).
+    
+  domain: script
+
+  input:
+    notify_device:
+      name: Device to notify
+      selector:
+        device:
+          integration: mobile_app
+
+    title:
+      name: Title
+      default: ""
+      selector: { text: {} }
+
+    message:
+      name: Message
+      selector: { text: {} }
+
+    # --- Action 1 (required)
+    action_1_text:
+      name: Action 1 - Text
+      default: Confirm
+      selector: { text: {} }
+    action_1_icon:
+      name: Action 1 - Icon (SF Symbols)
+      description: e.g. sfsymbols:checkmark.circle.fill
+      default: ""
+      selector: { text: {} }
+    action_1_destructive:
+      name: Action 1 - Destructive (iOS)
+      default: false
+      selector: { boolean: {} }
+    action_1_sequence:
+      name: Action 1 - Sequence
+      default: []
+      selector: { action: {} }
+
+    # --- Action 2 (required)
+    action_2_text:
+      name: Action 2 - Text
+      default: Deny
+      selector: { text: {} }
+    action_2_icon:
+      name: Action 2 - Icon (SF Symbols)
+      description: e.g. sfsymbols:xmark.circle.fill
+      default: ""
+      selector: { text: {} }
+    action_2_destructive:
+      name: Action 2 - Destructive (iOS)
+      default: false
+      selector: { boolean: {} }
+    action_2_sequence:
+      name: Action 2 - Sequence
+      default: []
+      selector: { action: {} }
+
+    # --- Action 3 (optional)
+    enable_action_3:
+      name: Enable Action 3
+      default: false
+      selector: { boolean: {} }
+    action_3_text:
+      name: Action 3 - Text
+      default: ""
+      selector: { text: {} }
+    action_3_icon:
+      name: Action 3 - Icon (SF Symbols)
+      default: ""
+      selector: { text: {} }
+    action_3_destructive:
+      name: Action 3 - Destructive (iOS)
+      default: false
+      selector: { boolean: {} }
+    action_3_sequence:
+      name: Action 3 - Sequence
+      default: []
+      selector: { action: {} }
+
+    # --- Action 4 (optional)
+    enable_action_4:
+      name: Enable Action 4
+      default: false
+      selector: { boolean: {} }
+    action_4_text:
+      name: Action 4 - Text
+      default: ""
+      selector: { text: {} }
+    action_4_icon:
+      name: Action 4 - Icon (SF Symbols)
+      default: ""
+      selector: { text: {} }
+    action_4_destructive:
+      name: Action 4 - Destructive (iOS)
+      default: false
+      selector: { boolean: {} }
+    action_4_sequence:
+      name: Action 4 - Sequence
+      default: []
+      selector: { action: {} }
+
+mode: restart
+
+sequence:
+  - alias: Generate action IDs
+    variables:
+      action_1_id: "ACT1_{{ context.id }}"
+      action_2_id: "ACT2_{{ context.id }}"
+      action_3_id: "ACT3_{{ context.id }}"
+      action_4_id: "ACT4_{{ context.id }}"
+
+      # Handy shorthands for inputs
+      a1_text: !input action_1_text
+      a1_icon: !input action_1_icon
+      a1_dest: !input action_1_destructive
+
+      a2_text: !input action_2_text
+      a2_icon: !input action_2_icon
+      a2_dest: !input action_2_destructive
+
+      use_a3: !input enable_action_3
+      a3_text: !input action_3_text
+      a3_icon: !input action_3_icon
+      a3_dest: !input action_3_destructive
+
+      use_a4: !input enable_action_4
+      a4_text: !input action_4_text
+      a4_icon: !input action_4_icon
+      a4_dest: !input action_4_destructive
+
+      # Build the iOS actions array dynamically
+      ios_actions: >
+        {% set out = [
+          {'action': action_1_id, 'title': a1_text, 'icon': a1_icon, 'destructive': a1_dest},
+          {'action': action_2_id, 'title': a2_text, 'icon': a2_icon, 'destructive': a2_dest}
+        ] %}
+        {% if use_a3 %}
+          {% set _ = out.append({'action': action_3_id, 'title': a3_text, 'icon': a3_icon, 'destructive': a3_dest}) %}
+        {% endif %}
+        {% if use_a4 %}
+          {% set _ = out.append({'action': action_4_id, 'title': a4_text, 'icon': a4_icon, 'destructive': a4_dest}) %}
+        {% endif %}
+        {{ out }}
+
+  - alias: Send notification
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: !input title
+    message: !input message
+    data:
+      # iOS: actions array (Android ignores icon/destructive keys)
+      actions: >
+        {{ ios_actions }}
+
+  - alias: Wait for any action
+    wait_for_trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_1_id }}" }
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_2_id }}" }
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ action_3_id }}"
+        enabled: "{{ use_a3 }}"
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ action_4_id }}"
+        enabled: "{{ use_a4_
