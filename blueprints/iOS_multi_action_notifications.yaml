@@ -1,24 +1,24 @@
 blueprint:
-  name: iOS Multi Action Notification (0.01)
+  name: iOS Multi-Action Notification (v0.1)
   author: AryaNakh
-  homeassistant: 
+  homeassistant:
     min_version: 2024.11.0
   description: |
-    ##  iOS Multi-Action Notification (0.01)
-    
-    This blueprint allows you to send iOS actionable notifications with up to 4 customizable buttons, each supporting:
+    ## iOS Multi-Action Notification (v0.1)
 
-    - Custom button text
-    - SF Symbol icons (optional, iOS only)
-    - Destructive styling (red button)
-    - Authentication required (Face ID / Touch ID / Passcode)
-    - Foreground flag (launches the HA app when tapped)
-    - Custom action sequence (run automations, services, etc.)
-    
-    ⚠️ Important:
-    This blueprint was built for iOS devices using the official Home Assistant app.
-    Android devices will receive the notification, but icons, destructive styling, authentication, and foreground flags will be ignored.
-    Supports critical notifications (if enabled in iOS settings and your HA app supports them).
+    This blueprint allows you to send **iOS actionable notifications** with up to **4 customizable buttons**, each supporting:
+
+      - Custom button text
+      - SF Symbol icons (optional, iOS only)
+      - Destructive styling (red button)
+      - Authentication required (Face ID / Touch ID / Passcode)
+      - Foreground flag (launches the HA app when tapped)
+      - Custom action sequence (run automations, services, etc.)
+
+    ⚠️ **Important**:
+    - Built for **iOS devices** using the official Home Assistant app.
+    - Android devices will receive the notification, but icons, destructive styling, authentication, and foreground flags will be ignored.
+    - Supports **critical notifications** (if enabled in iOS settings and your HA app supports them).
     
   domain: script
 
