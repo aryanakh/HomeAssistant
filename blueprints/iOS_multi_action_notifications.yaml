@@ -92,7 +92,7 @@ blueprint:
       selector: { text: {} }
     action_2_icon:
       name: Action 2 - Icon (SF Symbols)
-      description: Example: sfsymbols:xmark.circle.fill
+      description: "Example: sfsymbols:xmark.circle.fill"
       default: ""
       selector: { text: {} }
     action_2_destructive:
