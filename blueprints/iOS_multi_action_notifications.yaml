@@ -1,5 +1,5 @@
 blueprint:
-  name: iOS Multi-Action Notification (0.01)
+  name: iOS Multi Action Notification (0.01)
   author: AryaNakh
   homeassistant: 
     min_version: 2024.11.0
