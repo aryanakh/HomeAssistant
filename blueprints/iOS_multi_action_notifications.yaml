@@ -64,7 +64,7 @@ blueprint:
       selector: { text: {} }
     action_1_icon:
       name: Action 1 - Icon (SF Symbols)
-      description: Example: sfsymbols:checkmark.circle.fill
+      description: "Example: sfsymbols:checkmark.circle.fill"
       default: ""
       selector: { text: {} }
     action_1_destructive:
