@@ -1,26 +1,24 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.1)
+  name: iOS Multi‑Action Notification (v0.1)
   author: AryaNakh
+  domain: script
   homeassistant:
     min_version: 2024.11.0
   description: |
-    ## iOS Multi-Action Notification (v0.1)
+    ## iOS Multi‑Action Notification (v0.1)
 
-    This blueprint allows you to send **iOS actionable notifications** with up to **4 customizable buttons**, each supporting:
+    Send iOS actionable notifications with 2–4 customizable buttons.
 
-      - Custom button text
-      - SF Symbol icons (optional, iOS only)
-      - Destructive styling (red button)
-      - Authentication required (Face ID / Touch ID / Passcode)
-      - Foreground flag (launches the HA app when tapped)
-      - Custom action sequence (run automations, services, etc.)
+    **Per‑button options**
+      - Custom text
+      - SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
+      - Destructive (red)
+      - authenticationRequired (Face/Touch ID or passcode)
+      - foreground (open HA app)
 
-    ⚠️ **Important**:
-    - Built for **iOS devices** using the official Home Assistant app.
-    - Android devices will receive the notification, but icons, destructive styling, authentication, and foreground flags will be ignored.
-    - Supports **critical notifications** (if enabled in iOS settings and your HA app supports them).
-    
-  domain: script
+    **Other**
+      - Optional *critical* notification (bypass Silent/DND) with configurable sound + volume
+      - Android devices will receive the notification, but iOS‑specific options are ignored.
 
   input:
     notify_device:
@@ -38,18 +36,48 @@ blueprint:
       name: Message
       selector: { text: {} }
 
-    # --- Action 1 (required)
+    # ---- Critical notification (optional)
+    critical_enable:
+      name: Critical notification
+      description: Enable to bypass Silent/DND on iOS (requires iOS permission).
+      default: false
+      selector: { boolean: {} }
+    critical_sound:
+      name: Critical sound name
+      description: Use "default" or a bundled sound name.
+      default: default
+      selector: { text: {} }
+    critical_volume:
+      name: Critical volume (0.0–1.0)
+      default: 1.0
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.1
+          mode: slider
+
+    # ---- Action 1 (required)
     action_1_text:
       name: Action 1 - Text
       default: Confirm
       selector: { text: {} }
     action_1_icon:
       name: Action 1 - Icon (SF Symbols)
-      description: e.g. sfsymbols:checkmark.circle.fill
+      description: Example: sfsymbols:checkmark.circle.fill
       default: ""
       selector: { text: {} }
     action_1_destructive:
       name: Action 1 - Destructive (iOS)
+      default: false
+      selector: { boolean: {} }
+    action_1_auth:
+      name: Action 1 - authenticationRequired
+      description: Require Face/Touch ID or passcode before running.
+      default: false
+      selector: { boolean: {} }
+    action_1_foreground:
+      name: Action 1 - foreground (open app)
       default: false
       selector: { boolean: {} }
     action_1_sequence:
@@ -57,18 +85,26 @@ blueprint:
       default: []
       selector: { action: {} }
 
-    # --- Action 2 (required)
+    # ---- Action 2 (required)
     action_2_text:
       name: Action 2 - Text
       default: Deny
       selector: { text: {} }
     action_2_icon:
       name: Action 2 - Icon (SF Symbols)
-      description: e.g. sfsymbols:xmark.circle.fill
+      description: Example: sfsymbols:xmark.circle.fill
       default: ""
       selector: { text: {} }
     action_2_destructive:
       name: Action 2 - Destructive (iOS)
+      default: false
+      selector: { boolean: {} }
+    action_2_auth:
+      name: Action 2 - authenticationRequired
+      default: false
+      selector: { boolean: {} }
+    action_2_foreground:
+      name: Action 2 - foreground (open app)
       default: false
       selector: { boolean: {} }
     action_2_sequence:
@@ -76,7 +112,7 @@ blueprint:
       default: []
       selector: { action: {} }
 
-    # --- Action 3 (optional)
+    # ---- Action 3 (optional)
     enable_action_3:
       name: Enable Action 3
       default: false
@@ -93,12 +129,20 @@ blueprint:
       name: Action 3 - Destructive (iOS)
       default: false
       selector: { boolean: {} }
+    action_3_auth:
+      name: Action 3 - authenticationRequired
+      default: false
+      selector: { boolean: {} }
+    action_3_foreground:
+      name: Action 3 - foreground (open app)
+      default: false
+      selector: { boolean: {} }
     action_3_sequence:
       name: Action 3 - Sequence
       default: []
       selector: { action: {} }
 
-    # --- Action 4 (optional)
+    # ---- Action 4 (optional)
     enable_action_4:
       name: Enable Action 4
       default: false
@@ -115,6 +159,14 @@ blueprint:
       name: Action 4 - Destructive (iOS)
       default: false
       selector: { boolean: {} }
+    action_4_auth:
+      name: Action 4 - authenticationRequired
+      default: false
+      selector: { boolean: {} }
+    action_4_foreground:
+      name: Action 4 - foreground (open app)
+      default: false
+      selector: { boolean: {} }
     action_4_sequence:
       name: Action 4 - Sequence
       default: []
@@ -123,45 +175,51 @@ blueprint:
 mode: restart
 
 sequence:
-  - alias: Generate action IDs
+  - alias: Build action IDs and inputs
     variables:
       action_1_id: "ACT1_{{ context.id }}"
       action_2_id: "ACT2_{{ context.id }}"
       action_3_id: "ACT3_{{ context.id }}"
       action_4_id: "ACT4_{{ context.id }}"
 
-      # Handy shorthands for inputs
-      a1_text: !input action_1_text
-      a1_icon: !input action_1_icon
-      a1_dest: !input action_1_destructive
-
-      a2_text: !input action_2_text
-      a2_icon: !input action_2_icon
-      a2_dest: !input action_2_destructive
-
+      # Shorthands
       use_a3: !input enable_action_3
-      a3_text: !input action_3_text
-      a3_icon: !input action_3_icon
-      a3_dest: !input action_3_destructive
-
       use_a4: !input enable_action_4
-      a4_text: !input action_4_text
-      a4_icon: !input action_4_icon
-      a4_dest: !input action_4_destructive
 
-      # Build the iOS actions array dynamically
+      a1: { title: !input action_1_text, icon: !input action_1_icon, destructive: !input action_1_destructive, authenticationRequired: !input action_1_auth, foreground: !input action_1_foreground }
+      a2: { title: !input action_2_text, icon: !input action_2_icon, destructive: !input action_2_destructive, authenticationRequired: !input action_2_auth, foreground: !input action_2_foreground }
+      a3: { title: !input action_3_text, icon: !input action_3_icon, destructive: !input action_3_destructive, authenticationRequired: !input action_3_auth, foreground: !input action_3_foreground }
+      a4: { title: !input action_4_text, icon: !input action_4_icon, destructive: !input action_4_destructive, authenticationRequired: !input action_4_auth, foreground: !input action_4_foreground }
+
+      # Build iOS actions array
       ios_actions: >
         {% set out = [
-          {'action': action_1_id, 'title': a1_text, 'icon': a1_icon, 'destructive': a1_dest},
-          {'action': action_2_id, 'title': a2_text, 'icon': a2_icon, 'destructive': a2_dest}
+          dict(a1, **{'action': action_1_id}),
+          dict(a2, **{'action': action_2_id})
         ] %}
         {% if use_a3 %}
-          {% set _ = out.append({'action': action_3_id, 'title': a3_text, 'icon': a3_icon, 'destructive': a3_dest}) %}
+          {% set _ = out.append(dict(a3, **{'action': action_3_id})) %}
         {% endif %}
         {% if use_a4 %}
-          {% set _ = out.append({'action': action_4_id, 'title': a4_text, 'icon': a4_icon, 'destructive': a4_dest}) %}
+          {% set _ = out.append(dict(a4, **{'action': action_4_id})) %}
         {% endif %}
         {{ out }}
+
+      # Critical payload (only included if enabled)
+      push_data: >
+        {% if iif(!input 'critical_enable') %}
+        {}
+        {% else %}
+        {{ {
+          'push': {
+            'sound': {
+              'name': (iif(!input 'critical_sound')),
+              'critical': 1,
+              'volume': (iif(!input 'critical_volume'))
+            }
+          }
+        } }}
+        {% endif %}
 
   - alias: Send notification
     domain: mobile_app
@@ -170,11 +228,19 @@ sequence:
     title: !input title
     message: !input message
     data:
-      # iOS: actions array (Android ignores icon/destructive keys)
+      # Actions array (Android ignores icon/destructive/auth/foreground)
       actions: >
         {{ ios_actions }}
+      # Merge critical payload if enabled
+      {% if (iif(!input 'critical_enable')) %}
+      push:
+        sound:
+          name: "{{ (iif(!input 'critical_sound')) }}"
+          critical: 1
+          volume: {{ (iif(!input 'critical_volume')) }}
+      {% endif %}
 
-  - alias: Wait for any action
+  - alias: Wait for a button press
     wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -184,16 +250,13 @@ sequence:
         event_data: { action: "{{ action_2_id }}" }
       - platform: event
         event_type: mobile_app_notification_action
-        event_data:
-          action: "{{ action_3_id }}"
-        enabled: "{{ use_a3 }}"
+        event_data: { action: "{{ action_3_id }}" }
       - platform: event
         event_type: mobile_app_notification_action
-        event_data:
-          action: "{{ action_4_id }}"
-        enabled: "{{ use_a4 }}"
+        event_data: { action: "{{ action_4_id }}" }
 
-  - choose:
+  - alias: Route to the selected sequence
+    choose:
       - conditions: "{{ wait.trigger.event.data.action == action_1_id }}"
         sequence: !input action_1_sequence
       - conditions: "{{ wait.trigger.event.data.action == action_2_id }}"
