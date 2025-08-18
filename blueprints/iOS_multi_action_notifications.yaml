@@ -1,6 +1,11 @@
 blueprint:
-  name: iOS Multi-Action Notification
-  description: >
+  name: iOS Multi-Action Notification (0.01)
+  author: AryaNakh
+  homeassistant: 
+    min_version: 2024.11.0
+  description: |
+    ##  iOS Multi-Action Notification (0.01)
+    
     This blueprint allows you to send iOS actionable notifications with up to 4 customizable buttons, each supporting:
     
    - Custom button text
