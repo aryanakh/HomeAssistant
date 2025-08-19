@@ -1,17 +1,16 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.3)
+  name: iOS Multi-Action Notification (v0.4, single device or notify group)
   author: AryaNakh
   domain: script
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # iOS Multi-Action Notification (v0.3)
+    # iOS Multi-Action Notification (v0.4)
 
-    Send **actionable notifications** to **one or many iOS devices** 📱📱 with up to **4 customizable buttons**.  
-    Designed for iOS (Android devices will still get notifications but ignore iOS-specific features).
+    Send **actionable notifications** to **one iOS device** with up to **4 customizable buttons**.  
+    If you need multiple recipients, create a **notify group** and enter its service (e.g., `notify.family_iphones`) below.
 
     ## Features
-    - Send to **multiple iOS devices** at once  
     - **2–4 custom buttons** with:
       - Custom text
       - SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
@@ -24,17 +23,23 @@ blueprint:
     Use Apple’s SF Symbols catalog to find icon names: https://developer.apple.com/sf-symbols/
 
     ## ⚠️ Notes
-    - iOS only: advanced options (icons, destructive, auth, foreground, critical).  
-    - Android devices → receive the message and basic buttons, but ignore special iOS flags.  
-    - Critical notifications require **Critical Alerts permission** in iOS settings for the HA app.
+    - Built for iOS (Android will ignore iOS‑specific flags).
+    - Critical notifications require **Critical Alerts permission** in iOS settings for the Home Assistant app.
 
   input:
-    notify_targets:
-      name: Devices to notify (one or many)
+    notify_device:
+      name: Device to notify (iOS)
       selector:
-        target:
-          device:
-            integration: mobile_app
+        device:
+          integration: mobile_app
+
+    notify_service_override:
+      name: Optional notify service (for groups)
+      description: >
+        (Optional) If you created a notify group, put the **full service name** here, e.g. `notify.family_iphones`.
+        When set, this overrides the device above and sends to the group service instead.
+      default: ""
+      selector: { text: {} }
 
     title:
       name: Title
@@ -188,20 +193,14 @@ blueprint:
 mode: restart
 
 sequence:
-  - alias: Build action IDs and inputs
+  - alias: Build IDs and payloads
     variables:
-      # IDs (unique per run)
+      # Unique per run
       action_1_id: "ACT1_{{ context.id }}"
       action_2_id: "ACT2_{{ context.id }}"
       action_3_id: "ACT3_{{ context.id }}"
       action_4_id: "ACT4_{{ context.id }}"
 
-      # Extract device_ids from Target selector
-      targets: !input notify_targets
-      device_ids: >
-        {{ targets.device_id if targets is mapping and 'device_id' in targets else [] }}
-
-      # Inputs to vars
       use_a3: !input enable_action_3
       use_a4: !input enable_action_4
 
@@ -210,7 +209,6 @@ sequence:
       a3: { title: !input action_3_text, icon: !input action_3_icon, destructive: !input action_3_destructive, authenticationRequired: !input action_3_auth, foreground: !input action_3_foreground }
       a4: { title: !input action_4_text, icon: !input action_4_icon, destructive: !input action_4_destructive, authenticationRequired: !input action_4_auth, foreground: !input action_4_foreground }
 
-      # Build iOS actions array
       ios_actions: >
         {% set out = [
           dict(a1, **{'action': action_1_id}),
@@ -224,12 +222,10 @@ sequence:
         {% endif %}
         {{ out }}
 
-      # Critical payload pieces
       crit_enable: !input critical_enable
       crit_sound: !input critical_sound
       crit_volume: !input critical_volume
 
-      # Dict with push.sound only if critical is enabled; else empty dict
       critical_push: >
         {% if crit_enable %}
         {{ {'push': {'sound': {'name': crit_sound, 'critical': 1, 'volume': crit_volume}}} }}
@@ -237,25 +233,32 @@ sequence:
         {}
         {% endif %}
 
-      # Base data dict always present
       base_data: >
         {{ {'actions': ios_actions} }}
 
-      # Final data = base_data combined with optional critical_push
       final_data: >
         {{ base_data | combine(critical_push) }}
 
-  - alias: Send notification to each selected iOS device (by service name)
-    repeat:
-      for_each: "{{ device_ids }}"
-      sequence:
-        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
-          data:
+      svc_override: !input notify_service_override
+
+  - alias: Send notification (device or notify service)
+    choose:
+      - conditions: "{{ svc_override | trim | length > 0 }}"
+        sequence:
+          - service: "{{ svc_override }}"
+            data:
+              title: !input title
+              message: !input message
+              data: "{{ final_data }}"
+      - default:
+          - domain: mobile_app
+            type: notify
+            device_id: !input notify_device
             title: !input title
             message: !input message
             data: "{{ final_data }}"
 
-  - alias: Wait for a button press (from any device)
+  - alias: Wait for a button press
     wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -270,7 +273,7 @@ sequence:
         event_type: mobile_app_notification_action
         event_data: { action: "{{ action_4_id }}" }
 
-  - alias: Route to the selected sequence
+  - alias: Route to sequence
     choose:
       - conditions: "{{ wait.trigger.event.data.action == action_1_id }}"
         sequence: !input action_1_sequence
