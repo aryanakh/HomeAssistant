@@ -1,5 +1,5 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.3, multi-device)
+  name: iOS Multi-Action Notification (v0.3)
   author: AryaNakh
   domain: script
   homeassistant:
@@ -7,26 +7,29 @@ blueprint:
   description: |
     # 📲 iOS Multi-Action Notification (v0.3)
 
-    Send **actionable notifications** to **one or many iOS devices** 📱📱 with up to **4 customizable buttons**.  
-    Designed for iOS 🔐🍏 (Android devices will still get notifications but ignore iOS-specific features).
+    Send **actionable notifications** to **one or many iOS devices** with up to **4 customizable buttons**.  
+    Designed for iOS (Android devices will still get notifications but ignore iOS-specific features).
 
-    ## ✨ Features
-    - ➕ Send to **multiple iOS devices** at once  
-    - 🔘 **2–4 custom buttons** with:
-      - 📝 Custom text
-      - 🎨 SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
-      - ❌ Destructive (red highlight)
-      - 🔐 `authenticationRequired` (Face ID / Touch ID / Passcode)
-      - 📲 `foreground` (open Home Assistant app when tapped)
-    - 🔔 Optional **critical notification** (bypasses Silent/DND on iOS, with custom sound + volume)
+    ## Features
+    -  Send to **multiple iOS devices** at once  
+    -  **2–4 custom buttons** with:
+      -  Custom text
+      -  SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
+      -  Destructive (red highlight)
+      -  `authenticationRequired` (Face ID / Touch ID / Passcode)
+      -  `foreground` (open Home Assistant app when tapped)
+    -  Optional **critical notification** (bypasses Silent/DND on iOS, with custom sound + volume)
 
-    ## ℹ️ SF Symbols
+    ##  SF Symbols
     Use Apple’s SF Symbols catalog to find icon names: https://developer.apple.com/sf-symbols/
 
     ## ⚠️ Notes
     - iOS only: advanced options (icons, destructive, auth, foreground, critical).  
-    - Android devices 📱 → receive the message and basic buttons, but ignore special iOS flags.  
     - Critical notifications require **Critical Alerts permission** in iOS settings for the HA app.
+    - Android devices → receive the message and basic buttons, but ignore special iOS flags.
+
+    ## Android Disclaimer
+    I designed this specifically for my own iOS needs. Please dont ask for Android changes!
 
   input:
     notify_targets:
