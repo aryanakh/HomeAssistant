@@ -1,5 +1,5 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.4, single device or notify group)
+  name: iOS Multi-Action Notification (v0.4)
   author: AryaNakh
   domain: script
   homeassistant:
