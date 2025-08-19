@@ -1,5 +1,5 @@
 blueprint:
-  name: iOS Multi‑Action Notification (v0.1)
+  name: iOS Multi-Action Notification (v0.1)
   author: AryaNakh
   domain: script
   homeassistant:
@@ -177,12 +177,13 @@ mode: restart
 sequence:
   - alias: Build action IDs and inputs
     variables:
+      # IDs
       action_1_id: "ACT1_{{ context.id }}"
       action_2_id: "ACT2_{{ context.id }}"
       action_3_id: "ACT3_{{ context.id }}"
       action_4_id: "ACT4_{{ context.id }}"
 
-      # Shorthands
+      # Inputs to vars (easier templating)
       use_a3: !input enable_action_3
       use_a4: !input enable_action_4
 
@@ -205,21 +206,26 @@ sequence:
         {% endif %}
         {{ out }}
 
-      # Critical payload (only included if enabled)
-      push_data: >
-        {% if iif(!input 'critical_enable') %}
-        {}
+      # ---- Critical payload pieces
+      crit_enable: !input critical_enable
+      crit_sound: !input critical_sound
+      crit_volume: !input critical_volume
+
+      # Dict with push.sound only if critical is enabled; else empty dict
+      critical_push: >
+        {% if crit_enable %}
+        {{ {'push': {'sound': {'name': crit_sound, 'critical': 1, 'volume': crit_volume}}} }}
         {% else %}
-        {{ {
-          'push': {
-            'sound': {
-              'name': (iif(!input 'critical_sound')),
-              'critical': 1,
-              'volume': (iif(!input 'critical_volume'))
-            }
-          }
-        } }}
+        {}
         {% endif %}
+
+      # Base data dict always present
+      base_data: >
+        {{ {'actions': ios_actions} }}
+
+      # Final data = base_data combined with optional critical_push
+      final_data: >
+        {{ base_data | combine(critical_push) }}
 
   - alias: Send notification
     domain: mobile_app
@@ -227,18 +233,7 @@ sequence:
     device_id: !input notify_device
     title: !input title
     message: !input message
-    data:
-      # Actions array (Android ignores icon/destructive/auth/foreground)
-      actions: >
-        {{ ios_actions }}
-      # Merge critical payload if enabled
-      {% if (iif(!input 'critical_enable')) %}
-      push:
-        sound:
-          name: "{{ (iif(!input 'critical_sound')) }}"
-          critical: 1
-          volume: {{ (iif(!input 'critical_volume')) }}
-      {% endif %}
+    data: "{{ final_data }}"
 
   - alias: Wait for a button press
     wait_for_trigger:
