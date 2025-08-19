@@ -38,7 +38,6 @@ blueprint:
         target:
           device:
             integration: mobile_app
-          multiple: true
 
     title:
       name: Title
