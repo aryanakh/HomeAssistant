@@ -5,7 +5,7 @@ blueprint:
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # 📲 iOS Multi-Action Notification (v0.4)
+    # iOS Multi-Action Notification (v0.4)
 
     Send **actionable notifications** to **one iOS device** with up to **4 customizable buttons**.  
     If you need multiple recipients, create a **notify group** and enter its service (e.g., `notify.family_iphones`) below.
