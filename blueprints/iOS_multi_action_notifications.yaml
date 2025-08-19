@@ -1,35 +1,32 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.3)
+  name: iOS Multi-Action Notification (v0.3, multi-device)
   author: AryaNakh
   domain: script
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # 📲 iOS Multi-Action Notification (v0.3)
+    #  iOS Multi-Action Notification (v0.3)
 
-    Send **actionable notifications** to **one or many iOS devices** with up to **4 customizable buttons**.  
+    Send **actionable notifications** to **one or many iOS devices** 📱📱 with up to **4 customizable buttons**.  
     Designed for iOS (Android devices will still get notifications but ignore iOS-specific features).
 
     ## Features
-    -  Send to **multiple iOS devices** at once  
-    -  **2–4 custom buttons** with:
-      -  Custom text
-      -  SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
-      -  Destructive (red highlight)
-      -  `authenticationRequired` (Face ID / Touch ID / Passcode)
-      -  `foreground` (open Home Assistant app when tapped)
-    -  Optional **critical notification** (bypasses Silent/DND on iOS, with custom sound + volume)
+    - Send to **multiple iOS devices** at once  
+    - **2–4 custom buttons** with:
+      - Custom text
+      - SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
+      - Destructive (red highlight)
+      - `authenticationRequired` (Face ID / Touch ID / Passcode)
+      - `foreground` (open Home Assistant app when tapped)
+    - Optional **critical notification** (bypasses Silent/DND on iOS, with custom sound + volume)
 
-    ##  SF Symbols
+    ## SF Symbols
     Use Apple’s SF Symbols catalog to find icon names: https://developer.apple.com/sf-symbols/
 
     ## ⚠️ Notes
     - iOS only: advanced options (icons, destructive, auth, foreground, critical).  
+    - Android devices → receive the message and basic buttons, but ignore special iOS flags.  
     - Critical notifications require **Critical Alerts permission** in iOS settings for the HA app.
-    - Android devices → receive the message and basic buttons, but ignore special iOS flags.
-
-    ## Android Disclaimer
-    I designed this specifically for my own iOS needs. Please dont ask for Android changes!
 
   input:
     notify_targets:
@@ -199,11 +196,6 @@ sequence:
       action_3_id: "ACT3_{{ context.id }}"
       action_4_id: "ACT4_{{ context.id }}"
 
-      # Targets → list of device_ids
-      targets: !input notify_targets
-      device_ids: >
-        {{ targets.device_id if targets is mapping and 'device_id' in targets else [] }}
-
       # Inputs to vars
       use_a3: !input enable_action_3
       use_a4: !input enable_action_4
@@ -248,16 +240,13 @@ sequence:
       final_data: >
         {{ base_data | combine(critical_push) }}
 
-  - alias: Send to each selected device
-    repeat:
-      for_each: "{{ device_ids }}"
-      sequence:
-        - domain: mobile_app
-          type: notify
-          device_id: "{{ repeat.item }}"
-          title: !input title
-          message: !input message
-          data: "{{ final_data }}"
+  - alias: Send notification to selected targets (one or many)
+    service: notify.notify
+    target: !input notify_targets
+    data:
+      title: !input title
+      message: !input message
+      data: "{{ final_data }}"
 
   - alias: Wait for a button press (from any device)
     wait_for_trigger:
@@ -268,11 +257,11 @@ sequence:
         event_type: mobile_app_notification_action
         event_data: { action: "{{ action_2_id }}" }
       - platform: event
-        event_type: mobile_app_notification_action
         event_data: { action: "{{ action_3_id }}" }
-      - platform: event
         event_type: mobile_app_notification_action
+      - platform: event
         event_data: { action: "{{ action_4_id }}" }
+        event_type: mobile_app_notification_action
 
   - alias: Route to the selected sequence
     choose:
