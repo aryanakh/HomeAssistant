@@ -1,31 +1,41 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.1)
+  name: iOS Multi-Action Notification (v0.3, multi-device)
   author: AryaNakh
   domain: script
   homeassistant:
     min_version: 2024.11.0
   description: |
-    ## iOS Multi‑Action Notification (v0.1)
+    # 📲 iOS Multi-Action Notification (v0.3)
 
-    Send iOS actionable notifications with 2–4 customizable buttons.
+    Send **actionable notifications** to **one or many iOS devices** 📱📱 with up to **4 customizable buttons**.  
+    Designed for iOS 🔐🍏 (Android devices will still get notifications but ignore iOS-specific features).
 
-    **Per‑button options**
-      - Custom text
-      - SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
-      - Destructive (red)
-      - authenticationRequired (Face/Touch ID or passcode)
-      - foreground (open HA app)
+    ## ✨ Features
+    - ➕ Send to **multiple iOS devices** at once  
+    - 🔘 **2–4 custom buttons** with:
+      - 📝 Custom text
+      - 🎨 SF Symbols icon (e.g., `sfsymbols:lock.shield.fill`)
+      - ❌ Destructive (red highlight)
+      - 🔐 `authenticationRequired` (Face ID / Touch ID / Passcode)
+      - 📲 `foreground` (open Home Assistant app when tapped)
+    - 🔔 Optional **critical notification** (bypasses Silent/DND on iOS, with custom sound + volume)
 
-    **Other**
-      - Optional *critical* notification (bypass Silent/DND) with configurable sound + volume
-      - Android devices will receive the notification, but iOS‑specific options are ignored.
+    ## ℹ️ SF Symbols
+    Use Apple’s SF Symbols catalog to find icon names: https://developer.apple.com/sf-symbols/
+
+    ## ⚠️ Notes
+    - iOS only: advanced options (icons, destructive, auth, foreground, critical).  
+    - Android devices 📱 → receive the message and basic buttons, but ignore special iOS flags.  
+    - Critical notifications require **Critical Alerts permission** in iOS settings for the HA app.
 
   input:
-    notify_device:
-      name: Device to notify
+    notify_targets:
+      name: Devices to notify (one or many)
       selector:
-        device:
-          integration: mobile_app
+        target:
+          device:
+            integration: mobile_app
+          multiple: true
 
     title:
       name: Title
@@ -39,7 +49,7 @@ blueprint:
     # ---- Critical notification (optional)
     critical_enable:
       name: Critical notification
-      description: Enable to bypass Silent/DND on iOS (requires iOS permission).
+      description: Enable to bypass Silent/DND on iOS (requires iOS Critical Alerts permission).
       default: false
       selector: { boolean: {} }
     critical_sound:
@@ -64,11 +74,12 @@ blueprint:
       selector: { text: {} }
     action_1_icon:
       name: Action 1 - Icon (SF Symbols)
-      description: "Example: sfsymbols:checkmark.circle.fill"
+      description: Example: sfsymbols:checkmark.circle.fill
       default: ""
       selector: { text: {} }
     action_1_destructive:
       name: Action 1 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
       default: false
       selector: { boolean: {} }
     action_1_auth:
@@ -92,11 +103,12 @@ blueprint:
       selector: { text: {} }
     action_2_icon:
       name: Action 2 - Icon (SF Symbols)
-      description: "Example: sfsymbols:xmark.circle.fill"
+      description: Example: sfsymbols:xmark.circle.fill
       default: ""
       selector: { text: {} }
     action_2_destructive:
       name: Action 2 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
       default: false
       selector: { boolean: {} }
     action_2_auth:
@@ -127,6 +139,7 @@ blueprint:
       selector: { text: {} }
     action_3_destructive:
       name: Action 3 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
       default: false
       selector: { boolean: {} }
     action_3_auth:
@@ -157,6 +170,7 @@ blueprint:
       selector: { text: {} }
     action_4_destructive:
       name: Action 4 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
       default: false
       selector: { boolean: {} }
     action_4_auth:
@@ -177,13 +191,18 @@ mode: restart
 sequence:
   - alias: Build action IDs and inputs
     variables:
-      # IDs
+      # IDs (unique per run)
       action_1_id: "ACT1_{{ context.id }}"
       action_2_id: "ACT2_{{ context.id }}"
       action_3_id: "ACT3_{{ context.id }}"
       action_4_id: "ACT4_{{ context.id }}"
 
-      # Inputs to vars (easier templating)
+      # Targets → list of device_ids
+      targets: !input notify_targets
+      device_ids: >
+        {{ targets.device_id if targets is mapping and 'device_id' in targets else [] }}
+
+      # Inputs to vars
       use_a3: !input enable_action_3
       use_a4: !input enable_action_4
 
@@ -206,7 +225,7 @@ sequence:
         {% endif %}
         {{ out }}
 
-      # ---- Critical payload pieces
+      # Critical payload pieces
       crit_enable: !input critical_enable
       crit_sound: !input critical_sound
       crit_volume: !input critical_volume
@@ -227,15 +246,18 @@ sequence:
       final_data: >
         {{ base_data | combine(critical_push) }}
 
-  - alias: Send notification
-    domain: mobile_app
-    type: notify
-    device_id: !input notify_device
-    title: !input title
-    message: !input message
-    data: "{{ final_data }}"
+  - alias: Send to each selected device
+    repeat:
+      for_each: "{{ device_ids }}"
+      sequence:
+        - domain: mobile_app
+          type: notify
+          device_id: "{{ repeat.item }}"
+          title: !input title
+          message: !input message
+          data: "{{ final_data }}"
 
-  - alias: Wait for a button press
+  - alias: Wait for a button press (from any device)
     wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
