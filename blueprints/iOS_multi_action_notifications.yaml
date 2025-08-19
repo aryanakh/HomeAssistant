@@ -1,11 +1,11 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.3, multi-device)
+  name: iOS Multi-Action Notification (v0.3)
   author: AryaNakh
   domain: script
   homeassistant:
     min_version: 2024.11.0
   description: |
-    #  iOS Multi-Action Notification (v0.3)
+    # iOS Multi-Action Notification (v0.3)
 
     Send **actionable notifications** to **one or many iOS devices** 📱📱 with up to **4 customizable buttons**.  
     Designed for iOS (Android devices will still get notifications but ignore iOS-specific features).
@@ -196,6 +196,11 @@ sequence:
       action_3_id: "ACT3_{{ context.id }}"
       action_4_id: "ACT4_{{ context.id }}"
 
+      # Extract device_ids from Target selector
+      targets: !input notify_targets
+      device_ids: >
+        {{ targets.device_id if targets is mapping and 'device_id' in targets else [] }}
+
       # Inputs to vars
       use_a3: !input enable_action_3
       use_a4: !input enable_action_4
@@ -240,13 +245,15 @@ sequence:
       final_data: >
         {{ base_data | combine(critical_push) }}
 
-  - alias: Send notification to selected targets (one or many)
-    service: notify.notify
-    target: !input notify_targets
-    data:
-      title: !input title
-      message: !input message
-      data: "{{ final_data }}"
+  - alias: Send notification to each selected iOS device (by service name)
+    repeat:
+      for_each: "{{ device_ids }}"
+      sequence:
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: !input title
+            message: !input message
+            data: "{{ final_data }}"
 
   - alias: Wait for a button press (from any device)
     wait_for_trigger:
@@ -257,11 +264,11 @@ sequence:
         event_type: mobile_app_notification_action
         event_data: { action: "{{ action_2_id }}" }
       - platform: event
+        event_type: mobile_app_notification_action
         event_data: { action: "{{ action_3_id }}" }
-        event_type: mobile_app_notification_action
       - platform: event
-        event_data: { action: "{{ action_4_id }}" }
         event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_4_id }}" }
 
   - alias: Route to the selected sequence
     choose:
