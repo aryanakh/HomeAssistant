@@ -1,11 +1,11 @@
 blueprint:
-  name: iOS Multi-Action Notification (v0.4)
+  name: iOS Multi-Action Notification (v0.4, single device or notify group)
   author: AryaNakh
   domain: script
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # iOS Multi-Action Notification (v0.4)
+    # 📲 iOS Multi-Action Notification (v0.4)
 
     Send **actionable notifications** to **one iOS device** with up to **4 customizable buttons**.  
     If you need multiple recipients, create a **notify group** and enter its service (e.g., `notify.family_iphones`) below.
@@ -36,8 +36,9 @@ blueprint:
     notify_service_override:
       name: Optional notify service (for groups)
       description: >
-        (Optional) If you created a notify group, put the **full service name** here, e.g. `notify.family_iphones`.
-        When set, this overrides the device above and sends to the group service instead.
+        (Optional) If you created a notify group, put the **full service name** here,
+        e.g., `notify.family_iphones`. When set, this overrides the device above and
+        sends to the group service instead.
       default: ""
       selector: { text: {} }
 
@@ -241,7 +242,7 @@ sequence:
 
       svc_override: !input notify_service_override
 
-  - alias: Send notification (device or notify service)
+  - alias: Send notification via notify group if provided
     choose:
       - conditions: "{{ svc_override | trim | length > 0 }}"
         sequence:
@@ -250,13 +251,14 @@ sequence:
               title: !input title
               message: !input message
               data: "{{ final_data }}"
-      - default:
-          - domain: mobile_app
-            type: notify
-            device_id: !input notify_device
-            title: !input title
-            message: !input message
-            data: "{{ final_data }}"
+
+  - alias: Send notification to selected device (fallback)
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: !input title
+    message: !input message
+    data: "{{ final_data }}"
 
   - alias: Wait for a button press
     wait_for_trigger:
