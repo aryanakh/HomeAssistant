@@ -1,0 +1,315 @@
+blueprint:
+  name: Advanced AC Controls (v0.1)
+    homeassistant:
+    min_version: 2024.11.0
+  description: |
+    # Advanced AC Controls (v0.1)
+
+    Custom AC Controls for those in Warmer Climates who rarely use their Heaters.
+    Intelligent control of air conditioners based on:
+      - Indoor temperature
+      - Outdoor conditions
+      - Room occupancy
+      - Sensor overrides
+
+    ## ⚠️ Notes
+    - ** I built this for myself since I could not find anything that worked for me.** I will update as I need. I hope its helpful for you! 
+    - Full disclaimer: I have no idea what I am doing
+  domain: automation
+  input:
+    temperature_sensor:
+      name: Room Temperature Sensor
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    hvac_entity:
+      name: HVAC Entity (Optional - Many Modes)
+      description: Climate entity for an AC / HVAC with various fan modes (silent, low, medium, high, full, Auto).
+      selector:
+        entity:
+          domain: climate
+      default: ""
+    threshold_temp_start_fan:
+      name: Fan Start Threshold (Indoor)
+      description: Indoor temperature at which fans activate.
+      selector:
+        number:
+          min: 60
+          max: 85
+          step: 1
+          unit_of_measurement: "°F"
+      default: 75
+    threshold_temp_stop_fan:
+      name: Fan Stop Threshold (Indoor)
+      description: Indoor temperature at which fans turn off.
+      selector:
+        number:
+          min: 60
+          max: 85
+          step: 1
+          unit_of_measurement: "°F"
+      default: 72
+    threshold_temp_ac_high:
+      name: AC High Temperature Threshold
+      description: Indoor temperature to activate air conditioners in high mode.
+      selector:
+        number:
+          min: 70
+          max: 95
+          step: 1
+          unit_of_measurement: "°F"
+      default: 79
+    threshold_temp_ac_heatwave:
+      name: AC Heatwave Threshold (Indoor)
+      description: Indoor temperature to activate AC when a forecasted heatwave is detected. Should be lower than the normal threshold.
+      selector:
+        number:
+          min: 65
+          max: 80
+          step: 1
+          unit_of_measurement: "°F"
+      default: 72
+    outdoor_temperature_sensor:
+      name: Outdoor Temperature Sensor (Optional)
+      description: Outdoor temperature sensor for condition checks (actual outdoor temp).
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+      default: ""
+    outdoor_temp_max_for_vent:
+      name: Max Outdoor Temp for Ventilation (Optional)
+      description: Maximum outdoor temperature to allow ventilation (to avoid bringing in hot air).
+      selector:
+        number:
+          min: 50
+          max: 85
+          step: 1
+          unit_of_measurement: "°F"
+      default: 77
+    weather_forecast_entity:
+      name: Weather Forecast Entity (Optional - for Heatwave Alert)
+      description: Select your weather entity (e.g., weather.your_location) to get daily temperature forecasts.
+      selector:
+        entity:
+          domain: weather
+      default: ""
+    forecast_temp_heatwave_threshold:
+      name: Forecasted Temp Heatwave Threshold (Outdoor)
+      description: Daily forecasted temperature (from weather entity) above which a heatwave is considered "announced".
+      selector:
+        number:
+          min: 80
+          max: 105
+          step: 1
+          unit_of_measurement: "°F"
+      default: 86
+    window_sensor_entities:
+      name: Window/Door Sensors (Optional - for AC only)
+      description: Multiple binary sensors for windows or doors. AC will be impacted if any are open.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class:
+            - opening
+            - window
+            - door
+          multiple: true
+      default: []
+    turn_off_ac_on_window_open:
+      name: Turn Off AC If Any Window/Door Open?
+      description: If enabled, the AC will turn OFF immediately if any linked window/door sensor is open. If disabled, the AC will simply not start cooling if any window/door is open, but will remain ON if already running (e.g., in fan-only mode).
+      selector:
+        boolean:
+      default: true
+
+mode: queued
+
+variables:
+  hvac_entity: !input hvac_entity
+  outdoor_temperature_sensor: !input outdoor_temperature_sensor
+  threshold_temp_ac_heatwave: !input threshold_temp_ac_heatwave
+  weather_forecast_entity: !input weather_forecast_entity
+  forecast_temp_heatwave_threshold: !input forecast_temp_heatwave_threshold
+  window_sensor_entities: !input window_sensor_entities
+  turn_off_ac_on_window_open: !input turn_off_ac_on_window_open
+
+trigger:
+  - platform: state
+    entity_id: !input temperature_sensor
+    id: indoor_temp_change
+  - platform: state
+    entity_id: !input outdoor_temperature_sensor
+    id: outdoor_temp_change
+    enabled: "{{ outdoor_temperature_sensor != '' }}"
+  - platform: state
+    entity_id: !input weather_forecast_entity
+    attribute: temperature
+    id: weather_forecast_change
+    enabled: "{{ weather_forecast_entity != '' }}"
+  - platform: state
+    entity_id: !input window_sensor_entities
+    id: window_sensors_change
+    enabled: "{{ window_sensor_entities | length > 0 }}"
+
+condition:
+  - condition: template
+    value_template: >
+      {{ states(this.entity_id) not in ['unavailable', 'unknown'] }}
+
+action:
+  - variables:
+      room_temp_input_entity: !input temperature_sensor
+      threshold_start: !input threshold_temp_start_fan
+      threshold_stop: !input threshold_temp_stop_fan
+      threshold_ac_high: !input threshold_temp_ac_high
+      outdoor_temp_max: !input outdoor_temp_max_for_vent
+      threshold_ac_heatwave_indoor: !input threshold_temp_ac_heatwave
+
+      current_room_temp: "{{ states(room_temp_input_entity) | float(0) }}"
+      current_outdoor_temp: >
+        {% if outdoor_temperature_sensor != '' %}
+          {{ states(outdoor_temperature_sensor) | float(999) }}
+        {% else %}
+          {{ outdoor_temp_max }}
+        {% endif %}
+
+      is_heatwave: >
+        {% set weather_entity = weather_forecast_entity %}
+        {% set forecast_threshold = forecast_temp_heatwave_threshold %}
+        {% if weather_entity != '' and forecast_threshold is not none %}
+          {% set forecast = state_attr(weather_entity, 'forecast') %}
+          {% if forecast is not none and forecast | length > 0 %}
+            {% set today_max_temp = forecast[0].temperature | float(0) %}
+            {{ today_max_temp >= forecast_threshold }}
+          {% else %}
+            {{ false }}
+          {% endif %}
+        {% else %}
+          {{ false }}
+        {% endif %}
+
+      is_any_window_open: >
+        {% set window_sensors = window_sensor_entities %}
+        {% if window_sensors | length > 0 %}
+          {% set ns = namespace(any_open=false) %}
+          {% for sensor in window_sensors %}
+            {% if is_state(sensor, 'on') %}
+              {% set ns.any_open = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.any_open }}
+        {% else %}
+          {{ false }}
+        {% endif %}
+
+  # --- Logic for AC ---
+  - if:
+      - condition: template
+        value_template: "{{ hvac_entity != '' and states(hvac_entity) not in ['unavailable', 'unknown'] }}"
+    then:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ turn_off_ac_on_window_open and is_any_window_open }}"
+            sequence:
+              - service: climate.turn_off
+                target:
+                  entity_id: "{{ hvac_entity }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ not is_any_window_open }}"
+            sequence:
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ is_heatwave and current_room_temp > threshold_ac_heatwave_indoor }}"
+                    sequence:
+                      - service: climate.set_hvac_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          hvac_mode: 'cool'
+                      - service: climate.set_fan_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          fan_mode: 'medium'
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ current_room_temp > (threshold_ac_high + 4) }}"
+                    sequence:
+                      - service: climate.set_hvac_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          hvac_mode: 'cool'
+                      - service: climate.set_fan_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          fan_mode: 'full'
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ current_room_temp > threshold_ac_high }}"
+                    sequence:
+                      - service: climate.set_hvac_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          hvac_mode: 'cool'
+                      - service: climate.set_fan_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          fan_mode: 'high'
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ current_room_temp > (threshold_ac_high - 2) }}"
+                    sequence:
+                      - service: climate.set_hvac_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          hvac_mode: 'cool'
+                      - service: climate.set_fan_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          fan_mode: 'medium'
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ current_room_temp > (threshold_ac_high - 4) }}"
+                    sequence:
+                      - service: climate.set_hvac_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          hvac_mode: 'cool'
+                      - service: climate.set_fan_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          fan_mode: 'low'
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ current_room_temp <= (threshold_ac_high - 5) and current_room_temp > threshold_stop }}"
+                    sequence:
+                      - service: climate.set_hvac_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          hvac_mode: 'fan_only'
+                      - service: climate.set_fan_mode
+                        target:
+                          entity_id: "{{ hvac_entity }}"
+                        data:
+                          fan_mode: 'auto'
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ current_room_temp < threshold_stop }}"
+                    sequence:
+                      - service: climate.turn_off
+                        target:
+                          entity_id: "{{ hvac_entity }}"
