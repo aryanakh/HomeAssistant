@@ -66,7 +66,7 @@ blueprint:
 
     check_every_minutes:
       name: Check Frequency
-      description: How often to check/adjust (minutes). Realistic values: 5-15.
+      description: How often to check/adjust (minutes). Default is 10 minutes to not overwhelm the Climate control unit. 
       selector:
         number:
           min: 1
