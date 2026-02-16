@@ -1,14 +1,14 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control - 10 Min Only Clean
+  name: Arya's Ultimate Room Climate Control - Wider Neutral Band
   author: AryaNakh
   homeassistant:
     min_version: 2023.1.0
   description: >
-    Reliable central thermostat control using one prioritized room sensor.
-    - Runs every 10 minutes (at :00, :10, :20, etc.)
-    - Uses compensation formula with adjustable multiplier when room is out of range
-    - Sets broad comfort range (target_temp_low / high) when room is within desired temperatures
-    - Debug logging in system logs
+    Controls central thermostat using prioritized room sensor.
+    • Every 10 minutes
+    • Aggressive correction when room out of range
+    • Wide comfort band when room is happy (user min/max + buffer)
+    • Adjustable aggressiveness and buffer
 
   domain: automation
   input:
@@ -28,7 +28,7 @@ blueprint:
           device_class: temperature
 
     min_temperature:
-      name: Min Desired Temp (°F)
+      name: Desired Min Temp (°F) – comfort floor
       default: 68
       selector:
         number:
@@ -37,7 +37,7 @@ blueprint:
           step: 0.5
 
     max_temperature:
-      name: Max Desired Temp (°F)
+      name: Desired Max Temp (°F) – comfort ceiling
       default: 70
       selector:
         number:
@@ -47,7 +47,7 @@ blueprint:
 
     control_mode:
       name: Active Mode (for forcing adjustments)
-      description: heat_cool or auto recommended for proper range support when room is happy
+      description: heat_cool or auto recommended
       selector:
         select:
           options:
@@ -59,7 +59,7 @@ blueprint:
 
     adjustment_multiplier:
       name: Aggressiveness Multiplier
-      description: 1.0 = gentle correction, 1.5 = balanced, 2.0 = strong push
+      description: 1.0 = gentle, 1.5 = balanced, 2.0 = strong
       default: 1.5
       selector:
         number:
@@ -67,6 +67,16 @@ blueprint:
           max: 3.0
           step: 0.1
           mode: slider
+
+    neutral_buffer:
+      name: Neutral Range Buffer (°F)
+      description: Extra margin added/removed when room is happy → wider deadband
+      default: 2.0
+      selector:
+        number:
+          min: 0.5
+          max: 4.0
+          step: 0.5
 
 variables:
   thermostat: !input thermostat
@@ -77,6 +87,7 @@ variables:
   control_mode: !input control_mode
   use_range_mode: "{{ control_mode in ['heat_cool', 'auto'] }}"
   multiplier: !input adjustment_multiplier
+  buffer: !input neutral_buffer
 
 trigger:
   - platform: time_pattern
@@ -92,6 +103,8 @@ action:
       room_temp: "{{ states(room_sensor) | float(65) }}"
       deviation: "{{ (room_temp - target_temp) | abs | round(2) }}"
       desired_setpoint: "{{ (target_temp - (multiplier * (room_temp - target_temp))) | round(1) }}"
+      neutral_low: "{{ (min_temp - buffer) | round(1) }}"
+      neutral_high: "{{ (max_temp + buffer) | round(1) }}"
       current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
       current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
       current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
@@ -99,8 +112,9 @@ action:
   - service: system_log.write
     data:
       message: >
-        Climate check {{ now().strftime('%H:%M') }} | Room: {{ room_temp }}°F (dev {{ deviation }}°F)
-        Desired: {{ desired_setpoint }}°F | Current setpoint: {{ current_setpoint }}
+        Check {{ now().strftime('%H:%M') }} | Room {{ room_temp }}°F (dev {{ deviation }}°F)
+        Desired {{ desired_setpoint }}°F | Current {{ current_setpoint }}
+        Neutral range would be {{ neutral_low }}–{{ neutral_high }}°F
       level: info
 
   - condition: or
@@ -109,7 +123,8 @@ action:
       - condition: template
         value_template: >
           {% if use_range_mode %}
-            {{ current_low is none or current_high is none or current_low != min_temp or current_high != max_temp }}
+            {{ current_low is none or current_high is none
+               or current_low != neutral_low or current_high != neutral_high }}
           {% else %}
             {{ current_setpoint is none or (desired_setpoint - current_setpoint) | abs > 0.7 }}
           {% endif %}
@@ -123,8 +138,7 @@ action:
               entity_id: !input thermostat
             data:
               hvac_mode: heat
-          - delay:
-              seconds: 3
+          - delay: seconds: 3
           - service: climate.set_temperature
             target:
               entity_id: !input thermostat
@@ -139,8 +153,7 @@ action:
               entity_id: !input thermostat
             data:
               hvac_mode: cool
-          - delay:
-              seconds: 3
+          - delay: seconds: 3
           - service: climate.set_temperature
             target:
               entity_id: !input thermostat
@@ -162,11 +175,11 @@ action:
                     target:
                       entity_id: !input thermostat
                     data:
-                      target_temp_low: "{{ min_temp | round(1) }}"
-                      target_temp_high: "{{ max_temp | round(1) }}"
+                      target_temp_low: "{{ neutral_low }}"
+                      target_temp_high: "{{ neutral_high }}"
                   - service: system_log.write
                     data:
-                      message: "Room in range → set comfort band {{ min_temp }}–{{ max_temp }}°F"
+                      message: "Room happy → set wide comfort band {{ neutral_low }}–{{ neutral_high }}°F"
                       level: info
 
               - conditions: []
@@ -184,7 +197,7 @@ action:
 
   - service: system_log.write
     data:
-      message: "Adjustment applied → setpoint: {{ desired_setpoint }}°F"
+      message: "Adjustment completed"
       level: info
 
 mode: single
