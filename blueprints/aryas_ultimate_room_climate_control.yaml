@@ -1,13 +1,18 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control (v0.1)
+  name: Arya's Ultimate Room Climate Control - (v0.1.2)
   author: AryaNakh
   homeassistant:
-    min_version: 2023.1.0
+    min_version: 2025.1.0
   description: >
     Prioritizes one room's temperature sensor over the hallway thermostat.
-    Forces heat/cool aggressively when out of range; sets comfort range or midpoint when ok.
-    Logs actions to system log for debugging.
-    Version (v0.1.1)
+    Forces heat/cool when out of range using adjustable aggressiveness.
+    Sets comfort range or midpoint when the room is within desired temperatures.
+    
+    The adjustment formula is:
+    desired_setpoint = target_temp - multiplier × (room_temp - target_temp)
+    • multiplier 1.0 = mild compensation
+    • 1.5 = balanced (recommended starting point)
+    • 2.0 = aggressive (original behavior)
 
   domain: automation
   input:
@@ -56,15 +61,16 @@ blueprint:
             - cool
       default: heat_cool
 
-    check_interval_minutes:
-      name: Periodic Check Interval (minutes)
-      description: How often to force-check (static; edit YAML for odd values)
+    adjustment_multiplier:
+      name: Adjustment Multiplier (Aggressiveness)
+      description: How strongly to push when out of range. 1.0 = mild, 1.5 = balanced, 2.0 = aggressive
       selector:
         number:
-          min: 5
-          max: 30
-          step: 5
-      default: 10
+          min: 0.5
+          max: 3.0
+          step: 0.1
+          mode: slider
+      default: 1.5
 
 variables:
   thermostat: !input thermostat
@@ -74,13 +80,14 @@ variables:
   target_temp: "{{ ((min_temp + max_temp) / 2) | round(1) }}"
   control_mode: !input control_mode
   use_range_mode: "{{ control_mode in ['heat_cool', 'auto'] }}"
+  multiplier: !input adjustment_multiplier
 
 trigger:
-  # Periodic check (every 10 min at aligned times; change /10 in YAML if needed after import)
+  # Periodic check every 10 minutes (edit YAML after import for different interval)
   - platform: time_pattern
     minutes: "/10"
 
-  # React to room temp changes (debounce to avoid noise)
+  # React to room temperature changes (with 1-minute debounce)
   - platform: state
     entity_id: !input room_sensor
     for:
@@ -95,19 +102,20 @@ condition:
 action:
   - variables:
       room_temp: "{{ states(room_sensor) | float(65) }}"  # safe fallback
-      desired_setpoint: "{{ (2 * target_temp - room_temp) | round(1) }}"
+      deviation: "{{ room_temp - target_temp }}"
+      desired_setpoint: "{{ (target_temp - (multiplier * deviation)) | round(1) }}"
       current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
       current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
       current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
 
-  # Debug log: always write on trigger
+  # Debug log: always record when triggered
   - service: system_log.write
     data:
       message: >
-        Climate check triggered. Room: {{ room_temp }}°F | Target: {{ target_temp }}°F | Setpoint: {{ current_setpoint }} | Low/High: {{ current_low }}/{{ current_high }}
+        Climate check - Room: {{ room_temp }}°F | Target: {{ target_temp }}°F | Deviation: {{ deviation | round(1) }}°F | Desired setpoint: {{ desired_setpoint }}°F | Current: {{ current_setpoint }} | Multiplier: {{ multiplier }}
       level: info
 
-  # Only adjust if meaningfully off or wrong mode/range set
+  # Only adjust if meaningfully off or wrong setpoint/range currently set
   - condition: or
     conditions:
       - "{{ room_temp < min_temp - 0.5 or room_temp > max_temp + 0.5 }}"
@@ -120,7 +128,7 @@ action:
           {% endif %}
 
   - choose:
-      # Too cold: force heat + aggressive low setpoint
+      # Too cold: force heat + adjusted setpoint
       - conditions:
           - "{{ room_temp < min_temp }}"
         sequence:
@@ -135,7 +143,7 @@ action:
             data:
               temperature: "{{ desired_setpoint }}"
 
-      # Too hot: force cool + aggressive high setpoint
+      # Too hot: force cool + adjusted setpoint
       - conditions:
           - "{{ room_temp > max_temp }}"
         sequence:
