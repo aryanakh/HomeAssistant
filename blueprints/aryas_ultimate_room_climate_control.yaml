@@ -2,30 +2,28 @@ blueprint:
   name: Arya's Ultimate Room Climate Control
   author: AryaNakh
   homeassistant:
-    min_version: 2023.1.0
+    min_version: 2025.1.0
   description: >
     This blueprint turns your central thermostat into a "room-first" climate controller.
-    It ignores the thermostat's built-in sensor (usually in a hallway) and uses a real room sensor to keep that specific room in your desired temperature range.
+    It ignores the thermostat's built-in sensor and uses a real room sensor to keep that specific room in your desired temperature range.
     
     How it works:
     • If the room is too hot → lowers the thermostat setpoint to force more cooling
     • If the room is too cold → raises the thermostat setpoint to force more heating
     • If the room is perfect → sets a comfortable range (target_temp_low / high) in heat_cool or auto mode — or a neutral single setpoint otherwise
-    
-    The aggressive compensation formula (2 × desired - actual room temp) is only used when the room is actually out of range.
 
   domain: automation
   input:
     thermostat:
       name: Main Thermostat
-      description: Your main climate entity which controls the HVAC unit (e.g. climate.upstairs_thermostat)
+      description: Your main climate entity (e.g. climate.upstairs_thermostat)
       selector:
         entity:
           domain: climate
 
     room_sensor:
       name: Room Temperature Sensor
-      description: The sensor in the room you actually care about (e.g. sensor.nursery_temperature)
+      description: The sensor in the room you care about (e.g. sensor.nursery_temperature)
       selector:
         entity:
           domain: sensor
@@ -33,7 +31,7 @@ blueprint:
 
     min_temperature:
       name: Minimum Desired Temperature
-      description: Lowest temperature the room should ever be (e.g. 68 °F for the nursery)
+      description: Lowest temperature the room should be (e.g. 68 °F)
       selector:
         number:
           min: 55
@@ -44,7 +42,7 @@ blueprint:
 
     max_temperature:
       name: Maximum Desired Temperature
-      description: Highest temperature the room should ever be (e.g. 70 °F)
+      description: Highest temperature the room should be (e.g. 70 °F)
       selector:
         number:
           min: 55
@@ -55,7 +53,7 @@ blueprint:
 
     control_mode:
       name: Control HVAC Mode
-      description: The mode used when actively controlling (forcing heat/cool). For neutral/"happy" state, heat_cool or auto will use a range; heat or cool will use single setpoint.
+      description: Mode for active control (forcing heat/cool). Neutral state uses range if heat_cool/auto.
       selector:
         select:
           options:
@@ -68,7 +66,7 @@ blueprint:
 
     check_every_minutes:
       name: Check Frequency
-      description: How often to check and adjust (in minutes). 5–10 minutes is usually ideal.
+      description: How often to check/adjust (minutes). Realistic values: 5–15.
       selector:
         number:
           min: 1
@@ -85,14 +83,18 @@ variables:
   target_temp: "{{ ((min_temp + max_temp) / 2) | float }}"
   control_mode: !input control_mode
   use_range_mode: "{{ control_mode in ['heat_cool', 'auto'] }}"
+  interval_min: "{{ !input check_every_minutes | int(10) }}"
 
 trigger:
-  - platform: time_pattern
-    minutes: "/{{ check_every_minutes | int }}"
   - platform: numeric_state
     entity_id: !input room_sensor
     above: "{{ (states(room_sensor) | float(0) - 1) | round(1) }}"
     below: "{{ (states(room_sensor) | float(0) + 1) | round(1) }}"
+
+  - platform: template
+    value_template: "{{ now().minute % interval_min == 0 }}"
+    for:
+      seconds: 10   # helps avoid duplicate triggers near the minute boundary
 
 condition:
   - condition: template
