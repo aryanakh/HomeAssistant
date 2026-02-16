@@ -2,7 +2,7 @@ blueprint:
   name: Arya's Ultimate Room Climate Control
   author: AryaNakh
   homeassistant:
-    min_version: 2023.1.0   # Adjusted to a more realistic min version
+    min_version: 2023.1.0
   description: >
     This blueprint turns your central thermostat into a "room-first" climate controller.
     It ignores the thermostat's built-in sensor (usually in a hallway) and uses a real room sensor to keep that specific room in your desired temperature range.
@@ -87,10 +87,8 @@ variables:
   use_range_mode: "{{ control_mode in ['heat_cool', 'auto'] }}"
 
 trigger:
-  # Periodic check
   - platform: time_pattern
     minutes: "/{{ check_every_minutes | int }}"
-  # Quick reaction to significant room temp changes
   - platform: numeric_state
     entity_id: !input room_sensor
     above: "{{ (states(room_sensor) | float(0) - 1) | round(1) }}"
@@ -99,7 +97,8 @@ trigger:
 condition:
   - condition: template
     value_template: >
-      {{ is_number(states(room_sensor)) and is_state(thermostat, ['heat', 'cool', 'heat_cool', 'auto', 'dryer', 'fan_only']) }}
+      {{ is_number(states(room_sensor)) and 
+         states(thermostat) in ['heat', 'cool', 'heat_cool', 'auto'] }}
 
 action:
   - variables:
@@ -109,21 +108,20 @@ action:
       current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
       desired_setpoint: "{{ (2 * target_temp - room_temp) | round(1) }}"
 
-  # Decide if adjustment is actually needed (wider tolerance when already happy)
   - condition: or
+    conditions:
       - "{{ room_temp < min_temp or room_temp > max_temp }}"
       - condition: template
         value_template: >
           {% if use_range_mode %}
             {{ current_low is none or current_high is none 
-               or (current_low | float(0) | round(1) != min_temp | round(1))
-               or (current_high | float(0) | round(1) != max_temp | round(1)) }}
+               or current_low | round(1) != min_temp | round(1)
+               or current_high | round(1) != max_temp | round(1) }}
           {% else %}
             {{ current_temp is none or (desired_setpoint - current_temp) | abs > 0.8 }}
           {% endif %}
 
   - choose:
-      # Room too cold → force heat + aggressive setpoint
       - conditions:
           - "{{ room_temp < min_temp }}"
         sequence:
@@ -138,7 +136,6 @@ action:
             data:
               temperature: "{{ desired_setpoint }}"
 
-      # Room too hot → force cool + aggressive setpoint
       - conditions:
           - "{{ room_temp > max_temp }}"
         sequence:
@@ -153,11 +150,9 @@ action:
             data:
               temperature: "{{ desired_setpoint }}"
 
-      # Room in perfect range → set comfortable range (preferred) or neutral single point
       - conditions: []
         sequence:
           - choose:
-              # Use range if control_mode supports it
               - conditions:
                   - "{{ use_range_mode }}"
                 sequence:
@@ -173,7 +168,6 @@ action:
                       target_temp_low: "{{ min_temp | round(1) }}"
                       target_temp_high: "{{ max_temp | round(1) }}"
 
-              # Fallback for heat-only or cool-only modes
               - conditions: []
                 sequence:
                   - service: climate.set_hvac_mode
