@@ -4,11 +4,11 @@ blueprint:
   homeassistant:
     min_version: 2023.1.0
   description: >
-    Simple & reliable: runs every 10 minutes.
-    Prioritizes one room sensor, ignores hallway.
-    Adjustable multiplier for how aggressively to push setpoint.
-    Sets range (heat_cool/auto) or midpoint when room is in band.
-    Logs every run to system logs.
+    Reliable central thermostat control using one prioritized room sensor.
+    - Runs every 10 minutes (at :00, :10, :20, etc.)
+    - Uses compensation formula with adjustable multiplier when room is out of range
+    - Sets broad comfort range (target_temp_low / high) when room is within desired temperatures
+    - Debug logging in system logs
 
   domain: automation
   input:
@@ -46,8 +46,8 @@ blueprint:
           step: 0.5
 
     control_mode:
-      name: Active Mode
-      description: heat_cool or auto best for range support
+      name: Active Mode (for forcing adjustments)
+      description: heat_cool or auto recommended for proper range support when room is happy
       selector:
         select:
           options:
@@ -59,7 +59,7 @@ blueprint:
 
     adjustment_multiplier:
       name: Aggressiveness Multiplier
-      description: 1.0 = gentle, 1.5 = balanced, 2.0 = strong
+      description: 1.0 = gentle correction, 1.5 = balanced, 2.0 = strong push
       default: 1.5
       selector:
         number:
@@ -99,8 +99,8 @@ action:
   - service: system_log.write
     data:
       message: >
-        Check {{ now().strftime('%H:%M') }} | Room {{ room_temp }}°F (dev {{ deviation }}°F)
-        Desired {{ desired_setpoint }}°F | Current {{ current_setpoint }}
+        Climate check {{ now().strftime('%H:%M') }} | Room: {{ room_temp }}°F (dev {{ deviation }}°F)
+        Desired: {{ desired_setpoint }}°F | Current setpoint: {{ current_setpoint }}
       level: info
 
   - condition: or
@@ -164,6 +164,10 @@ action:
                     data:
                       target_temp_low: "{{ min_temp | round(1) }}"
                       target_temp_high: "{{ max_temp | round(1) }}"
+                  - service: system_log.write
+                    data:
+                      message: "Room in range → set comfort band {{ min_temp }}–{{ max_temp }}°F"
+                      level: info
 
               - conditions: []
                 sequence:
@@ -180,7 +184,7 @@ action:
 
   - service: system_log.write
     data:
-      message: "Setpoint adjusted to {{ desired_setpoint }}°F"
+      message: "Adjustment applied → setpoint: {{ desired_setpoint }}°F"
       level: info
 
 mode: single
