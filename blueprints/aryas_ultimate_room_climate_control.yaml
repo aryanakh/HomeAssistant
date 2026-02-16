@@ -123,8 +123,7 @@ action:
       - condition: template
         value_template: >
           {% if use_range_mode %}
-            {{ current_low is none or current_high is none
-               or current_low != neutral_low or current_high != neutral_high }}
+            {{ current_low is none or current_high is none or current_low != neutral_low or current_high != neutral_high }}
           {% else %}
             {{ current_setpoint is none or (desired_setpoint - current_setpoint) | abs > 0.7 }}
           {% endif %}
@@ -138,7 +137,8 @@ action:
               entity_id: !input thermostat
             data:
               hvac_mode: heat
-          - delay: seconds: 3
+          - delay:
+              seconds: 3
           - service: climate.set_temperature
             target:
               entity_id: !input thermostat
@@ -153,7 +153,8 @@ action:
               entity_id: !input thermostat
             data:
               hvac_mode: cool
-          - delay: seconds: 3
+          - delay:
+              seconds: 3
           - service: climate.set_temperature
             target:
               entity_id: !input thermostat
