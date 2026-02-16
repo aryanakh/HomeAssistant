@@ -2,7 +2,7 @@ blueprint:
   name: Arya's Ultimate Room Climate Control
   author: AryaNakh
   homeassistant:
-    min_version: 2025.1.0
+    min_version: 2023.1.0
   description: >
     This blueprint turns your central thermostat into a "room-first" climate controller.
     It ignores the thermostat's built-in sensor and uses a real room sensor to keep that specific room in your desired temperature range.
@@ -66,7 +66,7 @@ blueprint:
 
     check_every_minutes:
       name: Check Frequency
-      description: How often to check and adjust (minutes). 10 minutes is the default to not overwhelm the Climate Controller with instructions.
+      description: How often to check/adjust (minutes). Realistic values: 5-15.
       selector:
         number:
           min: 1
@@ -86,11 +86,11 @@ variables:
   interval_min: "{{ check_every_minutes | int(10) }}"
 
 trigger:
-  - platform: numeric_state
+  # Trigger 1: Any change in room temperature (we'll filter meaningful changes in template)
+  - platform: state
     entity_id: !input room_sensor
-    above: "{{ (states(room_sensor) | float(0) - 1) | round(1) }}"
-    below: "{{ (states(room_sensor) | float(0) + 1) | round(1) }}"
 
+  # Trigger 2: Periodic check every N minutes using modulo
   - platform: template
     value_template: >-
       {{ now().minute % interval_min == 0 }}
@@ -111,6 +111,22 @@ action:
       current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
       desired_setpoint: "{{ (2 * target_temp - room_temp) | round(1) }}"
 
+  # Only proceed if change is meaningful (≥1°F) OR it's a periodic check OR room is out of range
+  - condition: or
+    conditions:
+      # Meaningful change from state trigger
+      - condition: template
+        value_template: >-
+          {% if trigger.platform == 'state' %}
+            {{ trigger.from_state is not none and trigger.to_state is not none and
+               (trigger.to_state.state | float(0) - trigger.from_state.state | float(0)) | abs >= 1 }}
+          {% else %}
+            true  # always allow periodic triggers
+          {% endif %}
+      # Room out of range (safety net)
+      - "{{ room_temp < min_temp or room_temp > max_temp }}"
+
+  # Rest of action (adjustment logic) unchanged
   - condition: or
     conditions:
       - "{{ room_temp < min_temp or room_temp > max_temp }}"
