@@ -1,59 +1,51 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control
+  name: Arya's Ultimate Room Climate Control - Debug & Fixed
   author: AryaNakh
   homeassistant:
     min_version: 2023.1.0
   description: >
-    This blueprint turns your central thermostat into a "room-first" climate controller.
-    It ignores the thermostat's built-in sensor and uses a real room sensor to keep that specific room in your desired temperature range.
-    
-    How it works:
-    • If the room is too hot → lowers the thermostat setpoint to force more cooling
-    • If the room is too cold → raises the thermostat setpoint to force more heating
-    • If the room is perfect → sets a comfortable range (target_temp_low / high) in heat_cool or auto mode — or a neutral single setpoint otherwise
+    Prioritizes one room's temperature sensor over the hallway thermostat.
+    Forces heat/cool aggressively when out of range; sets comfort range or midpoint when ok.
+    Logs actions to system log for debugging.
 
   domain: automation
   input:
     thermostat:
       name: Main Thermostat
-      description: Your main climate entity (e.g. climate.upstairs_thermostat)
+      description: The central climate entity (e.g. climate.upstairs)
       selector:
         entity:
           domain: climate
 
     room_sensor:
-      name: Room Temperature Sensor
-      description: The sensor in the room you care about (e.g. sensor.nursery_temperature)
+      name: Prioritized Room Sensor
+      description: Temperature sensor for the room to control (e.g. sensor.nursery_temp)
       selector:
         entity:
           domain: sensor
           device_class: temperature
 
     min_temperature:
-      name: Minimum Desired Temperature
-      description: Lowest temperature the room should be (e.g. 68 °F)
+      name: Desired Min Temp (°F)
       selector:
         number:
           min: 55
           max: 80
           step: 0.5
-          unit_of_measurement: "°F"
       default: 68
 
     max_temperature:
-      name: Maximum Desired Temperature
-      description: Highest temperature the room should be (e.g. 70 °F)
+      name: Desired Max Temp (°F)
       selector:
         number:
           min: 55
           max: 80
           step: 0.5
-          unit_of_measurement: "°F"
       default: 70
 
     control_mode:
-      name: Control HVAC Mode
-      description: Mode for active control (forcing heat/cool). Neutral state uses range if heat_cool/auto.
+      name: Mode for Active Adjustments
+      description: Used when forcing heat/cool. Neutral uses range if possible.
       selector:
         select:
           options:
@@ -61,18 +53,16 @@ blueprint:
             - auto
             - heat
             - cool
-          sort: false
       default: heat_cool
 
-    check_every_minutes:
-      name: Check Frequency
-      description: How often to check/adjust (minutes). Default is 10 minutes to not overwhelm the Climate control unit. 
+    check_interval_minutes:
+      name: Periodic Check Interval (minutes)
+      description: How often to force-check (static; edit YAML for odd values)
       selector:
         number:
-          min: 1
+          min: 5
           max: 30
-          step: 1
-          unit_of_measurement: minutes
+          step: 5
       default: 10
 
 variables:
@@ -80,67 +70,56 @@ variables:
   room_sensor: !input room_sensor
   min_temp: !input min_temperature
   max_temp: !input max_temperature
-  target_temp: "{{ ((min_temp + max_temp) / 2) | float }}"
+  target_temp: "{{ ((min_temp + max_temp) / 2) | round(1) }}"
   control_mode: !input control_mode
   use_range_mode: "{{ control_mode in ['heat_cool', 'auto'] }}"
-  interval_min: "{{ check_every_minutes | int(10) }}"
 
 trigger:
-  # Trigger 1: Any change in room temperature (we'll filter meaningful changes in template)
+  # Periodic check (every 10 min at aligned times; change /10 in YAML if needed after import)
+  - platform: time_pattern
+    minutes: "/10"
+
+  # React to room temp changes (debounce to avoid noise)
   - platform: state
     entity_id: !input room_sensor
-
-  # Trigger 2: Periodic check every N minutes using modulo
-  - platform: template
-    value_template: >-
-      {{ now().minute % interval_min == 0 }}
     for:
-      seconds: 10
+      minutes: 1
 
 condition:
   - condition: template
-    value_template: >-
-      {{ is_number(states(room_sensor)) and 
-         states(thermostat) in ['heat', 'cool', 'heat_cool', 'auto'] }}
+    value_template: >
+      {{ is_number(states(room_sensor))
+         and states(thermostat) not in ['off', 'unavailable'] }}
 
 action:
   - variables:
-      room_temp: "{{ states(room_sensor) | float(0) }}"
-      current_temp: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
+      room_temp: "{{ states(room_sensor) | float(65) }}"  # safe fallback
+      desired_setpoint: "{{ (2 * target_temp - room_temp) | round(1) }}"
+      current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
       current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
       current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
-      desired_setpoint: "{{ (2 * target_temp - room_temp) | round(1) }}"
 
-  # Only proceed if change is meaningful (≥1°F) OR it's a periodic check OR room is out of range
+  # Debug log: always write on trigger
+  - service: system_log.write
+    data:
+      message: >
+        Climate check triggered. Room: {{ room_temp }}°F | Target: {{ target_temp }}°F | Setpoint: {{ current_setpoint }} | Low/High: {{ current_low }}/{{ current_high }}
+      level: info
+
+  # Only adjust if meaningfully off or wrong mode/range set
   - condition: or
     conditions:
-      # Meaningful change from state trigger
+      - "{{ room_temp < min_temp - 0.5 or room_temp > max_temp + 0.5 }}"
       - condition: template
-        value_template: >-
-          {% if trigger.platform == 'state' %}
-            {{ trigger.from_state is not none and trigger.to_state is not none and
-               (trigger.to_state.state | float(0) - trigger.from_state.state | float(0)) | abs >= 1 }}
-          {% else %}
-            true  # always allow periodic triggers
-          {% endif %}
-      # Room out of range (safety net)
-      - "{{ room_temp < min_temp or room_temp > max_temp }}"
-
-  # Rest of action (adjustment logic) unchanged
-  - condition: or
-    conditions:
-      - "{{ room_temp < min_temp or room_temp > max_temp }}"
-      - condition: template
-        value_template: >-
+        value_template: >
           {% if use_range_mode %}
-            {{ current_low is none or current_high is none 
-               or current_low | round(1) != min_temp | round(1)
-               or current_high | round(1) != max_temp | round(1) }}
+            {{ current_low is none or current_high is none or current_low != min_temp or current_high != max_temp }}
           {% else %}
-            {{ current_temp is none or (desired_setpoint - current_temp) | abs > 0.8 }}
+            {{ current_setpoint is none or (desired_setpoint - current_setpoint) | abs > 0.8 }}
           {% endif %}
 
   - choose:
+      # Too cold: force heat + aggressive low setpoint
       - conditions:
           - "{{ room_temp < min_temp }}"
         sequence:
@@ -155,6 +134,7 @@ action:
             data:
               temperature: "{{ desired_setpoint }}"
 
+      # Too hot: force cool + aggressive high setpoint
       - conditions:
           - "{{ room_temp > max_temp }}"
         sequence:
@@ -169,6 +149,7 @@ action:
             data:
               temperature: "{{ desired_setpoint }}"
 
+      # In range: set comfort band or midpoint
       - conditions: []
         sequence:
           - choose:
@@ -198,6 +179,6 @@ action:
                     target:
                       entity_id: !input thermostat
                     data:
-                      temperature: "{{ target_temp | round(1) }}"
+                      temperature: "{{ target_temp }}"
 
-mode: single
+mode: restart
