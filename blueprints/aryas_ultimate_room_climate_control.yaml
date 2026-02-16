@@ -1,5 +1,5 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control - Debug & Fixed
+  name: Arya's Ultimate Room Climate Control (v0.1)
   author: AryaNakh
   homeassistant:
     min_version: 2023.1.0
@@ -7,6 +7,7 @@ blueprint:
     Prioritizes one room's temperature sensor over the hallway thermostat.
     Forces heat/cool aggressively when out of range; sets comfort range or midpoint when ok.
     Logs actions to system log for debugging.
+    Version (v0.1.1)
 
   domain: automation
   input:
