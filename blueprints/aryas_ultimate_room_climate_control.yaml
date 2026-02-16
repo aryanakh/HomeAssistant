@@ -1,27 +1,28 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control (v0.1.3)
+  name: Arya's Ultimate Room Climate Control - (v0.1.3)
   author: AryaNakh
   homeassistant:
     min_version: 2023.1.0
   description: >
-    Controls the central thermostat based on one prioritized room sensor.
-    Main check: every 10 minutes
-    Quick reaction: if room temperature changes by ≥ 0.8 °F
-    Adjustable aggressiveness via multiplier.
-    Comfort range set when room is within desired band.
+    Reliable version:
+    • Checks every 10 minutes (time_pattern)
+    • Also reacts quickly if room temp changes by ≥0.8 °F (safe template trigger)
+    • Adjustable multiplier for aggressiveness
+    • Sets comfort range when in band
+    • Debug logging in system logs
 
   domain: automation
   input:
     thermostat:
       name: Main Thermostat
-      description: The central climate entity (e.g. climate.upstairs)
+      description: Central climate entity (e.g. climate.upstairs_thermostat)
       selector:
         entity:
           domain: climate
 
     room_sensor:
       name: Prioritized Room Sensor
-      description: Temperature sensor for the room to control
+      description: Temperature sensor to prioritize (e.g. sensor.nursery_temperature)
       selector:
         entity:
           domain: sensor
@@ -78,15 +79,16 @@ variables:
   multiplier: !input adjustment_multiplier
 
 trigger:
-  # Main periodic check — every 10 minutes
+  # Primary: every 10 minutes (aligned to :00, :10, :20, etc.)
   - platform: time_pattern
     minutes: "/10"
 
-  # Quick reaction when room temperature actually moves meaningfully
-  - platform: numeric_state
-    entity_id: !input room_sensor
-    above: "{{ (states(room_sensor) | float(0) + 0.8) | round(1) }}"
-    below: "{{ (states(room_sensor) | float(0) - 0.8) | round(1) }}"
+  # Quick reaction: room temp changed by ≥0.8 °F since last check
+  - platform: template
+    value_template: >
+      {% set current = states(room_sensor) | float(none) %}
+      {% set previous = this.attributes.last_room_temp | default(current) %}
+      {{ current is number and previous is number and (current - previous) | abs >= 0.8 }}
 
 condition:
   - condition: template
@@ -96,38 +98,43 @@ condition:
 
 action:
   - variables:
-      room_temp: "{{ states(room_sensor) | float(65) }}"
+      room_temp: "{{ states(room_sensor) | float(65) }}"  # fallback
       deviation: "{{ (room_temp - target_temp) | abs | round(2) }}"
       desired_setpoint: "{{ (target_temp - (multiplier * (room_temp - target_temp))) | round(1) }}"
       current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
       current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
       current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
 
-  # Debug log every time it runs
+  # Store current temp for next comparison
+  - service: homeassistant.update_entity
+    data:
+      entity_id: "{{ this.entity_id }}"
+      attributes:
+        last_room_temp: "{{ room_temp }}"
+
+  # Log every run
   - service: system_log.write
     data:
       message: >
         Climate check @ {{ now().strftime('%H:%M') }} — Room: {{ room_temp }}°F
-        Deviation: {{ deviation }}°F | Desired: {{ desired_setpoint }}°F
-        Current setpoint: {{ current_setpoint }} | Multiplier: {{ multiplier }}
+        Deviation: {{ deviation }}°F | Desired setpoint: {{ desired_setpoint }}°F
+        Current: {{ current_setpoint }} | Multiplier: {{ multiplier }}
       level: info
 
-  # Only adjust if meaningfully off or wrong current setting
+  # Skip if not meaningfully off or already correct
   - condition: or
     conditions:
-      - "{{ deviation > 0.9 }}"   # roughly 1°F or more off target
+      - "{{ deviation > 0.9 }}"
       - condition: template
         value_template: >
           {% if use_range_mode %}
-            {{ current_low is none or current_high is none
-               or current_low != min_temp or current_high != max_temp }}
+            {{ current_low is none or current_high is none or current_low != min_temp or current_high != max_temp }}
           {% else %}
-            {{ current_setpoint is none
-               or (desired_setpoint - current_setpoint) | abs > 0.7 }}
+            {{ current_setpoint is none or (desired_setpoint - current_setpoint) | abs > 0.7 }}
           {% endif %}
 
   - choose:
-      # Too cold
+      # Too cold → heat + push
       - conditions:
           - "{{ room_temp < min_temp }}"
         sequence:
@@ -136,14 +143,15 @@ action:
               entity_id: !input thermostat
             data:
               hvac_mode: heat
-          - delay: "00:00:03"   # small delay — helps some thermostats
+          - delay:
+              seconds: 3
           - service: climate.set_temperature
             target:
               entity_id: !input thermostat
             data:
               temperature: "{{ desired_setpoint }}"
 
-      # Too hot
+      # Too hot → cool + push
       - conditions:
           - "{{ room_temp > max_temp }}"
         sequence:
@@ -152,7 +160,8 @@ action:
               entity_id: !input thermostat
             data:
               hvac_mode: cool
-          - delay: "00:00:03"
+          - delay:
+              seconds: 3
           - service: climate.set_temperature
             target:
               entity_id: !input thermostat
@@ -191,10 +200,10 @@ action:
                     data:
                       temperature: "{{ target_temp }}"
 
-  # Log actual adjustment
+  # Log when change made
   - service: system_log.write
     data:
-      message: "Adjustment applied → setpoint → {{ desired_setpoint }}°F"
+      message: "Adjustment made → new setpoint: {{ desired_setpoint }}°F"
       level: info
 
 mode: single
