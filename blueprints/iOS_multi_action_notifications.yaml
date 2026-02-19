@@ -1,182 +1,290 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control - Fixed
-  author: AryaNakh (improved with community patterns)
+  name: iOS Multi-Action Notification (v0.4)
+  author: AryaNakh
+  domain: script
+  version: 0.4
   homeassistant:
-    min_version: 2023.1.0
-  description: >
-    Prioritizes a room sensor over the thermostat's built-in one. Forces aggressive correction when out of range, sets comfort band when ok.
-    Debug logs added. Use with heat_cool/auto thermostats for best range support.
+    min_version: 2024.11.0
+  description: |
+    # iOS Multi-Action Notification (v0.4)
 
-  domain: automation
+    Send actionable notifications to one iOS device with up to 4 customizable buttons.
+    If you need multiple recipients, create a **notify group** and enter its service (for example `notify.family_iphones`) in the **Optional notify service (for groups)** field.
+
+    - 2–4 custom buttons with:
+      - Custom text
+      - SF Symbols icon (for example, `sfsymbols:lock.shield.fill`)
+      - Destructive (red highlight)
+      - `authenticationRequired` (Face ID / Touch ID / Passcode)
+      - `foreground` (open Home Assistant app when tapped)
+    - Optional critical notification (bypasses Silent/DND on iOS, with custom sound + volume)
+
+    ## SF Symbols
+    Use Apple’s SF Symbols catalog to find icon names: https://developer.apple.com/sf-symbols/
+
+    ## ⚠️ Notes
+    - The **Device to notify (iOS)** field is **required** for compatibility, but if **Optional notify service (for groups)** is set, the group **overrides** the device and the device will be **ignored** (no double send).
+    - Built for iOS (Android will ignore iOS‑specific flags).
+    - Critical notifications require **Critical Alerts permission** in iOS settings for the Home Assistant app.
+
   input:
-    thermostat:
-      name: Main Thermostat
+    notify_device:
+      name: Device to notify (iOS)
       selector:
-        entity:
-          domain: climate
+        device:
+          integration: mobile_app
 
-    room_sensor:
-      name: Room Temperature Sensor
-      selector:
-        entity:
-          domain: sensor
-          device_class: temperature
+    notify_service_override:
+      name: Optional notify service (for groups)
+      description: >
+        (Optional) If you created a notify group, put the full service name here,
+        for example `notify.family_iphones`. When set, this **overrides** the device
+        above and sends to the group service instead (no double send).
+      default: ""
+      selector: { text: {} }
 
-    min_temperature:
-      name: Min Desired Temp (°F)
+    title:
+      name: Title
+      default: ""
+      selector: { text: {} }
+
+    message:
+      name: Message
+      selector: { text: {} }
+
+    # ---- Critical notification (optional)
+    critical_enable:
+      name: Critical notification
+      description: Enable to bypass Silent/DND on iOS (requires iOS Critical Alerts permission).
+      default: false
+      selector: { boolean: {} }
+    critical_sound:
+      name: Critical sound name
+      description: Use "default" or a bundled sound name.
+      default: default
+      selector: { text: {} }
+    critical_volume:
+      name: Critical volume (0.0–1.0)
+      default: 1.0
       selector:
         number:
-          min: 55
-          max: 80
-          step: 0.5
-      default: 68
-
-    max_temperature:
-      name: Max Desired Temp (°F)
-      selector:
-        number:
-          min: 55
-          max: 80
-          step: 0.5
-      default: 70
-
-    control_mode:
-      name: Active Control Mode
-      selector:
-        select:
-          options:
-            - heat_cool
-            - auto
-            - heat
-            - cool
-      default: heat_cool
-
-    check_interval_minutes:
-      name: Check Every (minutes)
-      selector:
-        number:
-          min: 5
-          max: 30
-          step: 5
-      default: 10
-
-    hysteresis:
-      name: Adjustment Hysteresis (°F)
-      description: Only adjust if deviation exceeds this (reduces spam)
-      selector:
-        number:
-          min: 0.3
-          max: 2
+          min: 0
+          max: 1
           step: 0.1
-      default: 0.8
+          mode: slider
 
-variables:
-  thermostat: !input thermostat
-  room_sensor: !input room_sensor
-  min_temp: !input min_temperature
-  max_temp: !input max_temperature
-  target_temp: "{{ ((min_temp + max_temp) / 2) | round(1) }}"
-  control_mode: !input control_mode
-  use_range: "{{ control_mode in ['heat_cool', 'auto'] }}"
-  interval: !input check_interval_minutes
-  hyst: !input hysteresis
+    # ---- Action 1 (required)
+    action_1_text:
+      name: Action 1 - Text
+      default: Confirm
+      selector: { text: {} }
+    action_1_icon:
+      name: Action 1 - Icon (SF Symbols)
+      description: "Example: sfsymbols:checkmark.circle.fill"
+      default: ""
+      selector: { text: {} }
+    action_1_destructive:
+      name: Action 1 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
+      default: false
+      selector: { boolean: {} }
+    action_1_auth:
+      name: Action 1 - authenticationRequired
+      description: Require Face/Touch ID or passcode before running.
+      default: false
+      selector: { boolean: {} }
+    action_1_foreground:
+      name: Action 1 - foreground (open app)
+      default: false
+      selector: { boolean: {} }
+    action_1_sequence:
+      name: Action 1 - Sequence
+      default: []
+      selector: { action: {} }
 
-trigger:
-  # Periodic: use time_pattern with static modulo-like (fires at :00, :10, :20... for 10 min)
-  - platform: time_pattern
-    minutes: "{{ '/'+ interval | string if interval <= 30 else '/10' }}"
+    # ---- Action 2 (required)
+    action_2_text:
+      name: Action 2 - Text
+      default: Deny
+      selector: { text: {} }
+    action_2_icon:
+      name: Action 2 - Icon (SF Symbols)
+      description: "Example: sfsymbols:xmark.circle.fill"
+      default: ""
+      selector: { text: {} }
+    action_2_destructive:
+      name: Action 2 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
+      default: false
+      selector: { boolean: {} }
+    action_2_auth:
+      name: Action 2 - authenticationRequired
+      default: false
+      selector: { boolean: {} }
+    action_2_foreground:
+      name: Action 2 - foreground (open app)
+      default: false
+      selector: { boolean: {} }
+    action_2_sequence:
+      name: Action 2 - Sequence
+      default: []
+      selector: { action: {} }
 
-  # Room temp change (debounce 2 min to avoid tiny updates)
-  - platform: state
-    entity_id: !input room_sensor
-    for:
-      minutes: 2
+    # ---- Action 3 (optional)
+    enable_action_3:
+      name: Enable Action 3
+      default: false
+      selector: { boolean: {} }
+    action_3_text:
+      name: Action 3 - Text
+      default: ""
+      selector: { text: {} }
+    action_3_icon:
+      name: Action 3 - Icon (SF Symbols)
+      default: ""
+      selector: { text: {} }
+    action_3_destructive:
+      name: Action 3 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
+      default: false
+      selector: { boolean: {} }
+    action_3_auth:
+      name: Action 3 - authenticationRequired
+      default: false
+      selector: { boolean: {} }
+    action_3_foreground:
+      name: Action 3 - foreground (open app)
+      default: false
+      selector: { boolean: {} }
+    action_3_sequence:
+      name: Action 3 - Sequence
+      default: []
+      selector: { action: {} }
 
-condition:
-  - condition: template
-    value_template: >
-      {{ is_number(states(room_sensor)) 
-         and not is_state(thermostat, ['off', 'unavailable']) 
-         and is_number(state_attr(thermostat, 'current_temperature') | default(0)) }}
+    # ---- Action 4 (optional)
+    enable_action_4:
+      name: Enable Action 4
+      default: false
+      selector: { boolean: {} }
+    action_4_text:
+      name: Action 4 - Text
+      default: ""
+      selector: { text: {} }
+    action_4_icon:
+      name: Action 4 - Icon (SF Symbols)
+      default: ""
+      selector: { text: {} }
+    action_4_destructive:
+      name: Action 4 - Destructive (iOS)
+      description: Colors the button red on iOS (visual only; action still runs).
+      default: false
+      selector: { boolean: {} }
+    action_4_auth:
+      name: Action 4 - authenticationRequired
+      default: false
+      selector: { boolean: {} }
+    action_4_foreground:
+      name: Action 4 - foreground (open app)
+      default: false
+      selector: { boolean: {} }
+    action_4_sequence:
+      name: Action 4 - Sequence
+      default: []
+      selector: { action: {} }
 
-action:
-  - variables:
-      room_temp: "{{ states(room_sensor) | float(65) }}"  # fallback if bad
-      curr_temp: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
-      curr_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
-      curr_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
-      desired: "{{ (2 * target_temp - room_temp) | round(1) }}"
-      deviation: "{{ (room_temp - target_temp) | abs }}"
+mode: restart
 
-  # Log start
-  - service: system_log.write
-    data:
-      message: "Room Climate Check: room={{room_temp}}°F target={{target_temp}}°F deviation={{deviation}}"
-      level: info
+sequence:
+  - alias: Build IDs and payloads
+    variables:
+      # Unique per run
+      action_1_id: "ACT1_{{ context.id }}"
+      action_2_id: "ACT2_{{ context.id }}"
+      action_3_id: "ACT3_{{ context.id }}"
+      action_4_id: "ACT4_{{ context.id }}"
 
-  # Skip if within hysteresis band
-  - condition: template
-    value_template: "{{ deviation > hyst or curr_temp is none or (use_range and (curr_low != min_temp or curr_high != max_temp)) }}"
+      use_a3: !input enable_action_3
+      use_a4: !input enable_action_4
 
-  - choose:
-      - conditions:
-          - "{{ room_temp < min_temp }}"
+      a1: { title: !input action_1_text, icon: !input action_1_icon, destructive: !input action_1_destructive, authenticationRequired: !input action_1_auth, foreground: !input action_1_foreground }
+      a2: { title: !input action_2_text, icon: !input action_2_icon, destructive: !input action_2_destructive, authenticationRequired: !input action_2_auth, foreground: !input action_2_foreground }
+      a3: { title: !input action_3_text, icon: !input action_3_icon, destructive: !input action_3_destructive, authenticationRequired: !input action_3_auth, foreground: !input action_3_foreground }
+      a4: { title: !input action_4_text, icon: !input action_4_icon, destructive: !input action_4_destructive, authenticationRequired: !input action_4_auth, foreground: !input action_4_foreground }
+
+      ios_actions: >
+        {% set out = [
+          dict(a1, **{'action': action_1_id}),
+          dict(a2, **{'action': action_2_id})
+        ] %}
+        {% if use_a3 %}
+          {% set _ = out.append(dict(a3, **{'action': action_3_id})) %}
+        {% endif %}
+        {% if use_a4 %}
+          {% set _ = out.append(dict(a4, **{'action': action_4_id})) %}
+        {% endif %}
+        {{ out }}
+
+      crit_enable: !input critical_enable
+      crit_sound: !input critical_sound
+      crit_volume: !input critical_volume
+
+      critical_push: >
+        {% if crit_enable %}
+        {{ {'push': {'sound': {'name': crit_sound, 'critical': 1, 'volume': crit_volume}}} }}
+        {% else %}
+        {}
+        {% endif %}
+
+      base_data: >
+        {{ {'actions': ios_actions} }}
+
+      final_data: >
+        {{ base_data | combine(critical_push) }}
+
+      svc_override: !input notify_service_override
+
+  - alias: Send notification (group overrides device)
+    choose:
+      # If a notify group/service is provided, send ONLY to it (device is ignored).
+      - conditions: "{{ svc_override | trim | length > 0 }}"
         sequence:
-          - service: climate.set_hvac_mode
-            target: {entity_id: !input thermostat}
-            data: {hvac_mode: heat}
-          - service: climate.set_temperature
-            target: {entity_id: !input thermostat}
-            data: {temperature: "{{ desired }}"}
-          - service: system_log.write
+          - service: "{{ svc_override }}"
             data:
-              message: "Too cold → Heat mode, setpoint={{desired}}"
-              level: info
-
-      - conditions:
-          - "{{ room_temp > max_temp }}"
+              title: !input title
+              message: !input message
+              data: "{{ final_data }}"
+      # If no group/service provided, send to the selected single device.
+      - conditions: "{{ (svc_override | trim | length) == 0 }}"
         sequence:
-          - service: climate.set_hvac_mode
-            target: {entity_id: !input thermostat}
-            data: {hvac_mode: cool}
-          - service: climate.set_temperature
-            target: {entity_id: !input thermostat}
-            data: {temperature: "{{ desired }}"}
-          - service: system_log.write
-            data:
-              message: "Too hot → Cool mode, setpoint={{desired}}"
-              level: info
+          - domain: mobile_app
+            type: notify
+            device_id: !input notify_device
+            title: !input title
+            message: !input message
+            data: "{{ final_data }}"
 
-      # Neutral
-      - conditions: []
-        sequence:
-          - choose:
-              - conditions: "{{ use_range }}"
-                sequence:
-                  - service: climate.set_hvac_mode
-                    target: {entity_id: !input thermostat}
-                    data: {hvac_mode: !input control_mode}
-                  - service: climate.set_temperature
-                    target: {entity_id: !input thermostat}
-                    data:
-                      target_temp_low: "{{ min_temp | round(1) }}"
-                      target_temp_high: "{{ max_temp | round(1) }}"
-                  - service: system_log.write
-                    data:
-                      message: "Neutral range set: {{min_temp}}-{{max_temp}}"
-                      level: info
+  - alias: Wait for a button press
+    wait_for_trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_1_id }}" }
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_2_id }}" }
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_3_id }}" }
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data: { action: "{{ action_4_id }}" }
 
-              - sequence:
-                  - service: climate.set_hvac_mode
-                    target: {entity_id: !input thermostat}
-                    data: {hvac_mode: !input control_mode}
-                  - service: climate.set_temperature
-                    target: {entity_id: !input thermostat}
-                    data: {temperature: "{{ target_temp }}"}
-                  - service: system_log.write
-                    data:
-                      message: "Neutral single setpoint: {{target_temp}}"
-                      level: info
-
-mode: restart  # Allows re-trigger if long-running
-max_exceeded: silent
+  - alias: Route to sequence
+    choose:
+      - conditions: "{{ wait.trigger.event.data.action == action_1_id }}"
+        sequence: !input action_1_sequence
+      - conditions: "{{ wait.trigger.event.data.action == action_2_id }}"
+        sequence: !input action_2_sequence
+      - conditions: "{{ use_a3 and wait.trigger.event.data.action == action_3_id }}"
+        sequence: !input action_3_sequence
+      - conditions: "{{ use_a4 and wait.trigger.event.data.action == action_4_id }}"
+        sequence: !input action_4_sequence

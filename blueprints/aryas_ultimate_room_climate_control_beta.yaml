@@ -1,14 +1,22 @@
 blueprint:
-  name: Arya's Ultimate Room Climate Control - (v0.1.5b)
+  name: AryaNakh's Ultimate Room Climate Control - (v0.1.5b)
   author: AryaNakh
   homeassistant:
     min_version: 2023.1.0
-  description: >
-    Controls central thermostat using prioritized room sensor.
-    • Every 10 minutes
-    • Aggressive correction when room out of range
-    • Wide comfort band when room is happy (user min/max + buffer)
-    • Adjustable aggressiveness and buffer
+  version: 0.1.5b
+  description: |
+    # AryaNakh's Ultimate Room Climate Control (v0.1.5b)
+
+    Take control of your HVAC system at home. Control system based on room sensors and more!
+    I plan on rolling out features and capabilities as I need them for my own step up. 
+
+    # Current Features
+      - Control a Thermostat with a room sensor 
+      - Custom re-polling durations
+      - Set temperature ranging for primary room
+      - Aggressive correction when room out of range
+      - Wide comfort band when room is happy (user min/max + buffer)
+      - Adjustable aggressiveness and buffer
 
   domain: automation
   input:
