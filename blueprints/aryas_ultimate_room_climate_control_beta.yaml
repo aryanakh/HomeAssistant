@@ -19,7 +19,7 @@ blueprint:
 
     # Beta Features
       - Boolean toggle to disable blueprint
-      - secondary priority room sensor adjustment
+      - configurable timing adjustments
 
   domain: automation
   ###########################################################################
