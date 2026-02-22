@@ -3,7 +3,6 @@ blueprint:
   author: AryaNakh
   homeassistant:
     min_version: 2024.11.0
-  version: 0.1.5b
   description: |
     # AryaNakh's Ultimate Room Climate Control (v0.1.5b)
 
