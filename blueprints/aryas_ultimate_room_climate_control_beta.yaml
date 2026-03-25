@@ -1,31 +1,51 @@
 blueprint:
-  name: AryaNakh's Ultimate Room Climate Control - (v0.1.5b)
+  name: AryaNakh's Ultimate Room Climate Control - (v0.2.0b)
   author: AryaNakh
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # AryaNakh's Ultimate Room Climate Control (v0.1.5b)
+    # AryaNakh's Ultimate Room Climate Control (v0.2.0b)
 
-    Take control of your HVAC system at home. Control system based on room sensors and more!
-    I plan on rolling out features and capabilities as I need them for my own step up. 
+    Take control of your HVAC system at home with 4-room zone control and relay-board damper support.
 
     # Current Features
-      - Actively corrects when the room is outside the desired range
-      - Widens the comfort band when the room is stable
-      - Adjusts aggressiveness using a multiplier
-      - Avoids excessive thermostat updates
+      - Actively corrects when a room is outside its desired range
+      - Priority-based conflict resolution when rooms disagree on heat vs cool
+      - Per-room damper control via relay board (up to 4 rooms / 6 dampers)
+      - 5 room rules: heat_only, cool_only, heat_and_cool, hold_range, do_nothing
+      - Widens the comfort band when all rooms are stable
+      - Adjusts aggressiveness using a global multiplier
+      - Avoids excessive thermostat updates with deadband checks
       - Allows custom polling intervals
 
     # Beta Features
       - Boolean toggle to disable blueprint
-      - configurable timing adjustments
+      - Configurable timing adjustments
+      - Per-room enable/disable toggle
+
+    # Room Rules
+      - heat_only: Room can only request heating. Damper closes when HVAC is cooling.
+      - cool_only: Room can only request cooling. Damper closes when HVAC is heating.
+      - heat_and_cool: Room participates in both heating and cooling requests.
+      - hold_range: Same as heat_and_cool but signals strict range intent.
+      - do_nothing: Room never votes; damper follows the global do_nothing default.
+
+    # Conflict Resolution
+      When one room needs heat and another needs cool, the room with the lower
+      priority number wins. Ties default to heat (safer for occupants).
+      Do NOT assign the same priority number to rooms with likely conflicting needs.
 
   domain: automation
+
   ###########################################################################
   # INPUTS — user-configurable settings exposed in the Blueprint UI
   ###########################################################################
   input:
-    # Main thermostat entity that will be controlled
+
+    # -------------------------------------------------------------------------
+    # GLOBAL SETTINGS
+    # -------------------------------------------------------------------------
+
     thermostat:
       name: Main Thermostat
       description: e.g. climate.upstairs_thermostat
@@ -33,49 +53,16 @@ blueprint:
         entity:
           domain: climate
 
-    # Room temperature sensor that drives control logic
-    room_sensor:
-      name: Room Temperature Sensor
-      description: e.g. sensor.nursery_environment_sensor_temperature
-      selector:
-        entity:
-          domain: sensor
-          device_class: temperature
-
-    # Lower bound of desired comfort range
-    min_temperature:
-      name: Desired Min Temp (°F) – comfort floor
-      default: 68
-      selector:
-        number:
-          min: 55
-          max: 80
-          step: 0.5
-
-  # Upper bound of desired comfort rang
-    max_temperature:
-      name: Desired Max Temp (°F) – comfort ceiling
-      default: 70
-      selector:
-        number:
-          min: 55
-          max: 80
-          step: 0.5
-
-    # HVAC mode used when actively controlling the thermostat
-    control_mode:
-      name: Active Mode (for forcing adjustments)
-      description: heat_cool or auto recommended
+    do_nothing_default_state:
+      name: Default Damper State for "Do Nothing" Rooms
+      description: Whether do_nothing rooms have their damper open or closed while HVAC runs.
       selector:
         select:
           options:
-            - heat_cool
-            - auto
-            - heat
-            - cool
-      default: heat_cool
+            - open
+            - closed
+      default: open
 
-    # Controls how aggressively the thermostat corrects deviations
     adjustment_multiplier:
       name: Aggressiveness Multiplier
       description: 1.0 = gentle, 1.5 = balanced, 2.0 = strong
@@ -87,10 +74,9 @@ blueprint:
           step: 0.1
           mode: slider
 
-    # Extra deadband added when room is already comfortable
     neutral_buffer:
       name: Neutral Range Buffer (°F)
-      description: Extra margin added/removed when room is happy → wider deadband
+      description: Extra margin added when all rooms are comfortable → wider deadband
       default: 2.0
       selector:
         number:
@@ -98,10 +84,9 @@ blueprint:
           max: 10.0
           step: 0.5
 
-    # Polling interval for automation run
     poll_interval_minutes:
       name: Polling Interval (minutes)
-      description: How often the automation runs (Intervals below 5 minutes NOT recommended)
+      description: How often the automation runs (intervals below 5 minutes NOT recommended)
       default: 10
       selector:
         number:
@@ -109,44 +94,532 @@ blueprint:
           max: 360
           step: 1
 
-    # Define a boolean or toggle which enbales or disables the blueprint
     enable_automation:
       name: Enable Climate Control
-      description: Toggle to enable or disable this automation. If set "On", this automation will run. If "off", it will be disabled.
+      description: Toggle to enable or disable this automation. If "On", automation runs. If "Off", thermostat turns off.
       selector:
         entity:
           domain: input_boolean
 
- ###########################################################################
-  # VARIABLES — computed once per automation run
-  ##########################################################################
+    ###########################################################################
+    # ROOM 1 CONFIGURATION
+    ###########################################################################
+
+    room1_sensor:
+      name: Room 1 - Temperature Sensor
+      description: e.g. sensor.room1_temperature
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    room1_damper:
+      name: Room 1 - Damper Switch
+      description: Switch entity for the relay-controlled vent damper
+      selector:
+        entity:
+          domain: switch
+
+    room1_rule:
+      name: Room 1 - Room Rule
+      description: How this room participates in HVAC requests
+      selector:
+        select:
+          options:
+            - heat_only
+            - cool_only
+            - heat_and_cool
+            - hold_range
+            - do_nothing
+      default: heat_and_cool
+
+    room1_priority:
+      name: Room 1 - Priority (1=highest, 4=lowest)
+      description: Lower number wins in heat vs cool conflicts
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 4
+          step: 1
+          mode: box
+
+    room1_min_temp:
+      name: Room 1 - Min Temperature (°F)
+      default: 68
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room1_max_temp:
+      name: Room 1 - Max Temperature (°F)
+      default: 70
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room1_enabled:
+      name: Room 1 - Enable this room
+      description: Toggle to include or exclude this room from control logic
+      default: true
+      selector:
+        boolean: {}
+
+    ###########################################################################
+    # ROOM 2 CONFIGURATION
+    ###########################################################################
+
+    room2_sensor:
+      name: Room 2 - Temperature Sensor
+      description: e.g. sensor.room2_temperature
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    room2_damper:
+      name: Room 2 - Damper Switch
+      description: Switch entity for the relay-controlled vent damper
+      selector:
+        entity:
+          domain: switch
+
+    room2_rule:
+      name: Room 2 - Room Rule
+      description: How this room participates in HVAC requests
+      selector:
+        select:
+          options:
+            - heat_only
+            - cool_only
+            - heat_and_cool
+            - hold_range
+            - do_nothing
+      default: heat_and_cool
+
+    room2_priority:
+      name: Room 2 - Priority (1=highest, 4=lowest)
+      description: Lower number wins in heat vs cool conflicts
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 4
+          step: 1
+          mode: box
+
+    room2_min_temp:
+      name: Room 2 - Min Temperature (°F)
+      default: 68
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room2_max_temp:
+      name: Room 2 - Max Temperature (°F)
+      default: 70
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room2_enabled:
+      name: Room 2 - Enable this room
+      description: Toggle to include or exclude this room from control logic
+      default: true
+      selector:
+        boolean: {}
+
+    ###########################################################################
+    # ROOM 3 CONFIGURATION
+    ###########################################################################
+
+    room3_sensor:
+      name: Room 3 - Temperature Sensor
+      description: e.g. sensor.room3_temperature
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    room3_damper:
+      name: Room 3 - Damper Switch
+      description: Switch entity for the relay-controlled vent damper
+      selector:
+        entity:
+          domain: switch
+
+    room3_rule:
+      name: Room 3 - Room Rule
+      description: How this room participates in HVAC requests
+      selector:
+        select:
+          options:
+            - heat_only
+            - cool_only
+            - heat_and_cool
+            - hold_range
+            - do_nothing
+      default: heat_and_cool
+
+    room3_priority:
+      name: Room 3 - Priority (1=highest, 4=lowest)
+      description: Lower number wins in heat vs cool conflicts
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 4
+          step: 1
+          mode: box
+
+    room3_min_temp:
+      name: Room 3 - Min Temperature (°F)
+      default: 68
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room3_max_temp:
+      name: Room 3 - Max Temperature (°F)
+      default: 70
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room3_enabled:
+      name: Room 3 - Enable this room
+      description: Toggle to include or exclude this room from control logic
+      default: true
+      selector:
+        boolean: {}
+
+    ###########################################################################
+    # ROOM 4 CONFIGURATION
+    ###########################################################################
+
+    room4_sensor:
+      name: Room 4 - Temperature Sensor
+      description: e.g. sensor.room4_temperature
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    room4_damper:
+      name: Room 4 - Damper Switch
+      description: Switch entity for the relay-controlled vent damper
+      selector:
+        entity:
+          domain: switch
+
+    room4_rule:
+      name: Room 4 - Room Rule
+      description: How this room participates in HVAC requests
+      selector:
+        select:
+          options:
+            - heat_only
+            - cool_only
+            - heat_and_cool
+            - hold_range
+            - do_nothing
+      default: heat_and_cool
+
+    room4_priority:
+      name: Room 4 - Priority (1=highest, 4=lowest)
+      description: Lower number wins in heat vs cool conflicts
+      default: 4
+      selector:
+        number:
+          min: 1
+          max: 4
+          step: 1
+          mode: box
+
+    room4_min_temp:
+      name: Room 4 - Min Temperature (°F)
+      default: 68
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room4_max_temp:
+      name: Room 4 - Max Temperature (°F)
+      default: 70
+      selector:
+        number:
+          min: 55
+          max: 80
+          step: 0.5
+
+    room4_enabled:
+      name: Room 4 - Enable this room
+      description: Toggle to include or exclude this room from control logic
+      default: false
+      selector:
+        boolean: {}
+
+###########################################################################
+# VARIABLES — computed once per automation run
+# IMPORTANT: dependency order is strict — do not reorder these blocks.
+###########################################################################
 variables:
+
+  # -------------------------------------------------------------------------
+  # Level 1: Global !input bindings
+  # -------------------------------------------------------------------------
   thermostat: !input thermostat
-  room_sensor: !input room_sensor
-  min_temp: !input min_temperature
-  max_temp: !input max_temperature
-  control_mode: !input control_mode
   multiplier: !input adjustment_multiplier
   buffer: !input neutral_buffer
   poll_interval: !input poll_interval_minutes
   enable_toggle: !input enable_automation
+  do_nothing_default: !input do_nothing_default_state
 
-  # Target midpoint temperature (used for proportional control)
-  target_temp: "{{ ((min_temp + max_temp) / 2) | round(1) }}"
+  # -------------------------------------------------------------------------
+  # Level 2: Per-room raw !input bindings (flat, one per field per room)
+  # -------------------------------------------------------------------------
+  r1_sensor: !input room1_sensor
+  r1_damper: !input room1_damper
+  r1_rule: !input room1_rule
+  r1_priority: !input room1_priority
+  r1_min: !input room1_min_temp
+  r1_max: !input room1_max_temp
+  r1_enabled: !input room1_enabled
 
-  # Determines if thermostat supports low/high setpoints
-  use_range_mode: "{{ control_mode in ['heat_cool', 'auto'] }}"
+  r2_sensor: !input room2_sensor
+  r2_damper: !input room2_damper
+  r2_rule: !input room2_rule
+  r2_priority: !input room2_priority
+  r2_min: !input room2_min_temp
+  r2_max: !input room2_max_temp
+  r2_enabled: !input room2_enabled
+
+  r3_sensor: !input room3_sensor
+  r3_damper: !input room3_damper
+  r3_rule: !input room3_rule
+  r3_priority: !input room3_priority
+  r3_min: !input room3_min_temp
+  r3_max: !input room3_max_temp
+  r3_enabled: !input room3_enabled
+
+  r4_sensor: !input room4_sensor
+  r4_damper: !input room4_damper
+  r4_rule: !input room4_rule
+  r4_priority: !input room4_priority
+  r4_min: !input room4_min_temp
+  r4_max: !input room4_max_temp
+  r4_enabled: !input room4_enabled
+
+  # -------------------------------------------------------------------------
+  # Level 3: rooms — aggregated list of all enabled rooms with valid sensors
+  # Each room dict contains: id, sensor, damper, rule, priority, min, max,
+  #   enabled, temp, target, needs_heat, needs_cool, is_comfortable,
+  #   deviation, desired_setpoint
+  # -------------------------------------------------------------------------
+  rooms: >
+    {% set ns = namespace(result=[]) %}
+    {% set room_defs = [
+      {'id': 1, 'sensor': r1_sensor, 'damper': r1_damper, 'rule': r1_rule,
+       'priority': r1_priority, 'min': r1_min, 'max': r1_max, 'enabled': r1_enabled},
+      {'id': 2, 'sensor': r2_sensor, 'damper': r2_damper, 'rule': r2_rule,
+       'priority': r2_priority, 'min': r2_min, 'max': r2_max, 'enabled': r2_enabled},
+      {'id': 3, 'sensor': r3_sensor, 'damper': r3_damper, 'rule': r3_rule,
+       'priority': r3_priority, 'min': r3_min, 'max': r3_max, 'enabled': r3_enabled},
+      {'id': 4, 'sensor': r4_sensor, 'damper': r4_damper, 'rule': r4_rule,
+       'priority': r4_priority, 'min': r4_min, 'max': r4_max, 'enabled': r4_enabled}
+    ] %}
+    {% for r in room_defs %}
+      {% if r.enabled and is_number(states(r.sensor)) %}
+        {% set temp = states(r.sensor) | float %}
+        {% set target = ((r.min + r.max) / 2) | round(1) %}
+        {% set needs_heat = (temp < r.min) and r.rule in ['heat_only', 'heat_and_cool', 'hold_range'] %}
+        {% set needs_cool = (temp > r.max) and r.rule in ['cool_only', 'heat_and_cool', 'hold_range'] %}
+        {% set is_comfortable = (temp >= r.min) and (temp <= r.max) %}
+        {% set deviation = (temp - target) | abs | round(2) %}
+        {% set desired_sp = (target - (multiplier * (temp - target))) | round(1) %}
+        {% set room_state = dict(r,
+          temp=temp,
+          target=target,
+          needs_heat=needs_heat,
+          needs_cool=needs_cool,
+          is_comfortable=is_comfortable,
+          deviation=deviation,
+          desired_setpoint=desired_sp
+        ) %}
+        {% set ns.result = ns.result + [room_state] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.result }}
+
+  # -------------------------------------------------------------------------
+  # Level 4: rooms filtered by what they need
+  # -------------------------------------------------------------------------
+  heat_requesting: >
+    {{ rooms | selectattr('needs_heat', 'eq', true) | list }}
+
+  cool_requesting: >
+    {{ rooms | selectattr('needs_cool', 'eq', true) | list }}
+
+  # -------------------------------------------------------------------------
+  # Level 5: winning room per mode — highest priority (lowest number) first
+  # -------------------------------------------------------------------------
+  winning_heat_room: >
+    {% set candidates = heat_requesting | sort(attribute='priority') %}
+    {{ candidates[0] if candidates | length > 0 else none }}
+
+  winning_cool_room: >
+    {% set candidates = cool_requesting | sort(attribute='priority') %}
+    {{ candidates[0] if candidates | length > 0 else none }}
+
+  # -------------------------------------------------------------------------
+  # Level 6: hvac_decision — the resolved HVAC mode for this cycle
+  #   Tie (equal priority, heat vs cool) → heat wins as safer default
+  # -------------------------------------------------------------------------
+  hvac_decision: >
+    {% if winning_heat_room is none and winning_cool_room is none %}
+      comfortable
+    {% elif winning_heat_room is none %}
+      cool
+    {% elif winning_cool_room is none %}
+      heat
+    {% elif winning_heat_room.priority <= winning_cool_room.priority %}
+      heat
+    {% else %}
+      cool
+    {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Level 7: winning_room — the room driving the thermostat setpoint
+  # -------------------------------------------------------------------------
+  winning_room: >
+    {% if hvac_decision == 'heat' %}
+      {{ winning_heat_room }}
+    {% elif hvac_decision == 'cool' %}
+      {{ winning_cool_room }}
+    {% else %}
+      none
+    {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Level 8: comfort midpoint — average of all enabled room targets
+  # -------------------------------------------------------------------------
+  all_room_midpoints: >
+    {{ rooms | map(attribute='target') | list }}
+
+  comfort_midpoint: >
+    {% if all_room_midpoints | length > 0 %}
+      {{ (all_room_midpoints | sum / all_room_midpoints | length) | round(1) }}
+    {% else %}
+      69
+    {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Level 9: neutral band for comfortable state
+  # -------------------------------------------------------------------------
+  neutral_low: "{{ (comfort_midpoint - buffer) | round(1) }}"
+  neutral_high: "{{ (comfort_midpoint + buffer) | round(1) }}"
+
+  # -------------------------------------------------------------------------
+  # Level 10: per-damper open/close decision (pre-computed for action section)
+  #
+  # Damper logic per rule:
+  #   heat_only:      open when HVAC=heat AND room needs_heat; else closed
+  #   cool_only:      open when HVAC=cool AND room needs_cool; else closed
+  #   heat_and_cool:  open when HVAC matches room need; else closed
+  #   hold_range:     same as heat_and_cool
+  #   do_nothing:     always follows do_nothing_default (never votes)
+  #   comfortable:    all non-do_nothing dampers close
+  # -------------------------------------------------------------------------
+  room1_damper_open: >
+    {% set r = rooms | selectattr('id', 'eq', 1) | list %}
+    {% if r | length == 0 %}
+      false
+    {% elif r[0].rule == 'do_nothing' %}
+      {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'heat_only' %}
+      {{ hvac_decision == 'heat' and r[0].needs_heat }}
+    {% elif r[0].rule == 'cool_only' %}
+      {{ hvac_decision == 'cool' and r[0].needs_cool }}
+    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
+      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
+         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% else %}
+      false
+    {% endif %}
+
+  room2_damper_open: >
+    {% set r = rooms | selectattr('id', 'eq', 2) | list %}
+    {% if r | length == 0 %}
+      false
+    {% elif r[0].rule == 'do_nothing' %}
+      {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'heat_only' %}
+      {{ hvac_decision == 'heat' and r[0].needs_heat }}
+    {% elif r[0].rule == 'cool_only' %}
+      {{ hvac_decision == 'cool' and r[0].needs_cool }}
+    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
+      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
+         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% else %}
+      false
+    {% endif %}
+
+  room3_damper_open: >
+    {% set r = rooms | selectattr('id', 'eq', 3) | list %}
+    {% if r | length == 0 %}
+      false
+    {% elif r[0].rule == 'do_nothing' %}
+      {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'heat_only' %}
+      {{ hvac_decision == 'heat' and r[0].needs_heat }}
+    {% elif r[0].rule == 'cool_only' %}
+      {{ hvac_decision == 'cool' and r[0].needs_cool }}
+    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
+      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
+         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% else %}
+      false
+    {% endif %}
+
+  room4_damper_open: >
+    {% set r = rooms | selectattr('id', 'eq', 4) | list %}
+    {% if r | length == 0 %}
+      false
+    {% elif r[0].rule == 'do_nothing' %}
+      {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'heat_only' %}
+      {{ hvac_decision == 'heat' and r[0].needs_heat }}
+    {% elif r[0].rule == 'cool_only' %}
+      {{ hvac_decision == 'cool' and r[0].needs_cool }}
+    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
+      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
+         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% else %}
+      false
+    {% endif %}
 
 ###########################################################################
-# TRIGGER — automation runs every X minutes
+# TRIGGER — automation runs every X minutes or when disabled
 ###########################################################################
 trigger:
-  # Regular poll interval trigger 
   - platform: time_pattern
     minutes: "/{{ poll_interval }}"
     id: time_poll
 
-  # Single trigger for disabling automtion
   - platform: state
     entity_id: !input enable_automation
     to: "off"
@@ -156,22 +629,27 @@ trigger:
 # CONDITIONS — safety checks before running
 ###########################################################################
 condition:
-  # Master enable/disable toggle
-  - condition: state
-    entity_id: !input enable_automation
-    state: "on"
+  # Master enable/disable toggle — must be on for normal logic
+  # (enable_off trigger bypasses this via the action choose below)
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: enable_off
+      - condition: state
+        entity_id: !input enable_automation
+        state: "on"
 
-  # Existing safety condition
+  # Thermostat must be reachable
   - condition: template
     value_template: >
-      {{ is_number(states(room_sensor)) and
-         states(thermostat) not in ['off', 'unavailable'] }}
+      {{ states(thermostat) not in ['off', 'unavailable', 'unknown'] }}
 
 ###########################################################################
 # ACTIONS — main control logic
 ###########################################################################
 action:
   - choose:
+
       #######################################################################
       # CASE 1 — Automation disabled → turn thermostat OFF (once)
       #######################################################################
@@ -185,66 +663,129 @@ action:
 
           - service: system_log.write
             data:
-              message: "Automation disabled → thermostat turned OFF"
+              message: "Climate control disabled → thermostat turned OFF"
               level: warning
 
       #######################################################################
-      # CASE 2 — Automation enabled → normal control logic
+      # CASE 2 — Automation enabled → multi-room control logic
       #######################################################################
       - conditions:
           - condition: state
             entity_id: !input enable_automation
             state: "on"
         sequence:
-          # Calculate runtime variables
-          - variables:
-            # Current room temperature
-              room_temp: "{{ states(room_sensor) | float(65) }}"
-              # Absolute deviation from target midpoint
-              deviation: "{{ (room_temp - target_temp) | abs | round(2) }}"
-              # Proportional correction setpoint
-              desired_setpoint: "{{ (target_temp - (multiplier * (room_temp - target_temp))) | round(1) }}"
-              # Neutral comfort band when room is stable
-              neutral_low: "{{ (min_temp - buffer) | round(1) }}"
-              neutral_high: "{{ (max_temp + buffer) | round(1) }}"
-              # Current thermostat settings
-              current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
-              current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
-              current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
 
-        # Log current evaluation state *ONLY FOR BETA. REMOVE FOR STABLE*
+          # ----------------------------------------------------------------
+          # STEP 1 — Early exit if no valid room data
+          # ----------------------------------------------------------------
+          - condition: template
+            value_template: "{{ rooms | length > 0 }}"
+
+          # ----------------------------------------------------------------
+          # STEP 2 — Log current evaluation state (BETA — remove for stable)
+          # ----------------------------------------------------------------
           - service: system_log.write
             data:
               message: >
-                Check {{ now().strftime('%H:%M') }} | Room {{ room_temp }}°F (dev {{ deviation }}°F)
-                Desired {{ desired_setpoint }}°F | Current {{ current_setpoint }}
-                Neutral range would be {{ neutral_low }}–{{ neutral_high }}°F
+                [v0.2.0b] Check {{ now().strftime('%H:%M') }}
+                | rooms={{ rooms | map(attribute='id') | list }}
+                | hvac_decision={{ hvac_decision }}
+                | winning_room={{ winning_room.id if winning_room != 'none' and winning_room is mapping else 'none' }}
+                | dampers open: r1={{ room1_damper_open }}, r2={{ room2_damper_open }}, r3={{ room3_damper_open }}, r4={{ room4_damper_open }}
               level: info
 
-          ###########################################################################
-          # Only act if:
-          #   - Room is meaningfully off target
-          #   - OR thermostat settings don’t match expected values
-          ###########################################################################
+          # ----------------------------------------------------------------
+          # STEP 3 — Damper control (set BEFORE HVAC change so vents
+          #          are in position before conditioned air flows)
+          # ----------------------------------------------------------------
+
+          # Room 1 damper
+          - choose:
+              - conditions: "{{ room1_damper_open }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: !input room1_damper
+            default:
+              - service: switch.turn_off
+                target:
+                  entity_id: !input room1_damper
+
+          # Room 2 damper
+          - choose:
+              - conditions: "{{ room2_damper_open }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: !input room2_damper
+            default:
+              - service: switch.turn_off
+                target:
+                  entity_id: !input room2_damper
+
+          # Room 3 damper
+          - choose:
+              - conditions: "{{ room3_damper_open }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: !input room3_damper
+            default:
+              - service: switch.turn_off
+                target:
+                  entity_id: !input room3_damper
+
+          # Room 4 damper
+          - choose:
+              - conditions: "{{ room4_damper_open }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: !input room4_damper
+            default:
+              - service: switch.turn_off
+                target:
+                  entity_id: !input room4_damper
+
+          # ----------------------------------------------------------------
+          # STEP 4 — Deadband check: skip thermostat updates when already correct
+          # ----------------------------------------------------------------
+          - variables:
+              current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
+              current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
+              current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
+              winning_deviation: >
+                {% if winning_room != 'none' and winning_room is mapping %}
+                  {{ winning_room.deviation }}
+                {% else %}
+                  0
+                {% endif %}
+              winning_setpoint: >
+                {% if winning_room != 'none' and winning_room is mapping %}
+                  {{ winning_room.desired_setpoint }}
+                {% else %}
+                  0
+                {% endif %}
 
           - condition: or
             conditions:
-              - "{{ deviation > 0.9 }}"
-              - condition: template
-                value_template: >
-                  {% if use_range_mode %}
-                    {{ current_low is none or current_high is none or current_low != neutral_low or current_high != neutral_high }}
-                  {% else %}
-                    {{ current_setpoint is none or (desired_setpoint - current_setpoint) | abs > 0.7 }}
-                  {% endif %}
+              # Active mode: room is meaningfully off target
+              - "{{ hvac_decision in ['heat', 'cool'] and winning_deviation > 0.9 }}"
+              # Active mode: thermostat setpoint doesn't match what we'd set
+              - "{{ hvac_decision in ['heat', 'cool'] and
+                    (current_setpoint is none or (winning_setpoint - current_setpoint) | abs > 0.7) }}"
+              # Comfortable mode: thermostat band doesn't match our neutral band
+              - "{{ hvac_decision == 'comfortable' and
+                    (current_low is none or current_high is none or
+                     current_low != neutral_low or current_high != neutral_high) }}"
 
-          ###########################################################################
-          # DECISION TREE — heating, cooling, or neutral behavior
-          ###########################################################################
+          # ----------------------------------------------------------------
+          # STEP 5 — HVAC mode + setpoint (3 branches)
+          # ----------------------------------------------------------------
           - choose:
-              # Room too cold → force heating
-              - conditions:
-                  - "{{ room_temp < min_temp }}"
+
+              # BRANCH: Active heating needed
+              - conditions: "{{ hvac_decision == 'heat' }}"
                 sequence:
                   - service: climate.set_hvac_mode
                     target:
@@ -257,11 +798,16 @@ action:
                     target:
                       entity_id: !input thermostat
                     data:
-                      temperature: "{{ desired_setpoint }}"
+                      temperature: "{{ winning_setpoint }}"
+                  - service: system_log.write
+                    data:
+                      message: >
+                        Heating → room {{ winning_room.id }} at {{ winning_room.temp }}°F
+                        (target {{ winning_room.target }}°F) → setpoint {{ winning_setpoint }}°F
+                      level: info
 
-              # Room too hot → force cooling
-              - conditions:
-                  - "{{ room_temp > max_temp }}"
+              # BRANCH: Active cooling needed
+              - conditions: "{{ hvac_decision == 'cool' }}"
                 sequence:
                   - service: climate.set_hvac_mode
                     target:
@@ -274,51 +820,40 @@ action:
                     target:
                       entity_id: !input thermostat
                     data:
-                      temperature: "{{ desired_setpoint }}"
+                      temperature: "{{ winning_setpoint }}"
+                  - service: system_log.write
+                    data:
+                      message: >
+                        Cooling → room {{ winning_room.id }} at {{ winning_room.temp }}°F
+                        (target {{ winning_room.target }}°F) → setpoint {{ winning_setpoint }}°F
+                      level: info
 
-              # Room within desired range → relaxed behavior
-              - conditions: []
-                sequence:
-                  - choose:
-                      # Use wide comfort band if range mode supported
-                      - conditions:
-                          - "{{ use_range_mode }}"
-                        sequence:
-                          - service: climate.set_hvac_mode
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              hvac_mode: !input control_mode
-                          - service: climate.set_temperature
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              target_temp_low: "{{ neutral_low }}"
-                              target_temp_high: "{{ neutral_high }}"
-                          - service: system_log.write
-                            data:
-                              message: "Room happy → set wide comfort band {{ neutral_low }}–{{ neutral_high }}°F"
-                              level: info
+              # BRANCH: All rooms comfortable → wide neutral band
+            default:
+              - service: climate.set_hvac_mode
+                target:
+                  entity_id: !input thermostat
+                data:
+                  hvac_mode: heat_cool
+              - service: climate.set_temperature
+                target:
+                  entity_id: !input thermostat
+                data:
+                  target_temp_low: "{{ neutral_low }}"
+                  target_temp_high: "{{ neutral_high }}"
+              - service: system_log.write
+                data:
+                  message: >
+                    All rooms comfortable → wide comfort band {{ neutral_low }}–{{ neutral_high }}°F
+                  level: info
 
-                      # Fallback for single-setpoint thermostats
-                      - conditions: []
-                        sequence:
-                          - service: climate.set_hvac_mode
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              hvac_mode: !input control_mode
-                          - service: climate.set_temperature
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              temperature: "{{ target_temp }}"
-
-        # Final log entry
+          # ----------------------------------------------------------------
+          # STEP 6 — Final log
+          # ----------------------------------------------------------------
           - service: system_log.write
             data:
-              message: "Adjustment completed"
+              message: "[v0.2.0b] Cycle complete"
               level: info
 
-# Prevent overlapping run
+# Prevent overlapping runs
 mode: single
