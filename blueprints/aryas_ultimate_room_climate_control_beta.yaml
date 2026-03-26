@@ -131,6 +131,7 @@ blueprint:
     room1_damper2:
       name: Room 1 - Second Damper Switch (optional)
       description: Leave blank if this room only has one damper
+      default: {}
       selector:
         entity:
           domain: switch
@@ -206,6 +207,7 @@ blueprint:
     room2_damper2:
       name: Room 2 - Second Damper Switch (optional)
       description: Leave blank if this room only has one damper
+      default: {}
       selector:
         entity:
           domain: switch
@@ -281,6 +283,7 @@ blueprint:
     room3_damper2:
       name: Room 3 - Second Damper Switch (optional)
       description: Leave blank if this room only has one damper
+      default: {}
       selector:
         entity:
           domain: switch
@@ -356,6 +359,7 @@ blueprint:
     room4_damper2:
       name: Room 4 - Second Damper Switch (optional)
       description: Leave blank if this room only has one damper
+      default: {}
       selector:
         entity:
           domain: switch
@@ -759,7 +763,7 @@ action:
 
           - if:
               - condition: template
-                value_template: "{{ r1_damper2 != '' }}"
+                value_template: "{{ r1_damper2 is string and r1_damper2 != '' }}"
             then:
               - choose:
                   - conditions: "{{ room1_damper_open }}"
@@ -786,7 +790,7 @@ action:
 
           - if:
               - condition: template
-                value_template: "{{ r2_damper2 != '' }}"
+                value_template: "{{ r2_damper2 is string and r2_damper2 != '' }}"
             then:
               - choose:
                   - conditions: "{{ room2_damper_open }}"
@@ -813,7 +817,7 @@ action:
 
           - if:
               - condition: template
-                value_template: "{{ r3_damper2 != '' }}"
+                value_template: "{{ r3_damper2 is string and r3_damper2 != '' }}"
             then:
               - choose:
                   - conditions: "{{ room3_damper_open }}"
@@ -840,7 +844,7 @@ action:
 
           - if:
               - condition: template
-                value_template: "{{ r4_damper2 != '' }}"
+                value_template: "{{ r4_damper2 is string and r4_damper2 != '' }}"
             then:
               - choose:
                   - conditions: "{{ room4_damper_open }}"
