@@ -11,7 +11,7 @@ blueprint:
     # Current Features
       - Actively corrects when a room is outside its desired range
       - Priority-based conflict resolution when rooms disagree on heat vs cool
-      - Per-room damper control via relay board (up to 4 rooms / 6 dampers)
+      - Per-room damper control via relay board (up to 4 rooms, up to 2 dampers per room)
       - 5 room rules: heat_only, cool_only, heat_and_cool, hold_range, do_nothing
       - Widens the comfort band when all rooms are stable
       - Adjusts aggressiveness using a global multiplier
@@ -85,14 +85,22 @@ blueprint:
           step: 0.5
 
     poll_interval_minutes:
-      name: Polling Interval (minutes)
-      description: How often the automation runs (intervals below 5 minutes NOT recommended)
-      default: 10
+      name: Polling Interval
+      description: How often the automation runs (below 5 minutes NOT recommended)
       selector:
-        number:
-          min: 1
-          max: 360
-          step: 1
+        select:
+          options:
+            - label: "Every 5 minutes"
+              value: "/5"
+            - label: "Every 10 minutes"
+              value: "/10"
+            - label: "Every 15 minutes"
+              value: "/15"
+            - label: "Every 30 minutes"
+              value: "/30"
+            - label: "Every 60 minutes"
+              value: "/60"
+      default: "/10"
 
     enable_automation:
       name: Enable Climate Control
@@ -116,6 +124,13 @@ blueprint:
     room1_damper:
       name: Room 1 - Damper Switch
       description: Switch entity for the relay-controlled vent damper
+      selector:
+        entity:
+          domain: switch
+
+    room1_damper2:
+      name: Room 1 - Second Damper Switch (optional)
+      description: Leave blank if this room only has one damper
       selector:
         entity:
           domain: switch
@@ -188,6 +203,13 @@ blueprint:
         entity:
           domain: switch
 
+    room2_damper2:
+      name: Room 2 - Second Damper Switch (optional)
+      description: Leave blank if this room only has one damper
+      selector:
+        entity:
+          domain: switch
+
     room2_rule:
       name: Room 2 - Room Rule
       description: How this room participates in HVAC requests
@@ -252,6 +274,13 @@ blueprint:
     room3_damper:
       name: Room 3 - Damper Switch
       description: Switch entity for the relay-controlled vent damper
+      selector:
+        entity:
+          domain: switch
+
+    room3_damper2:
+      name: Room 3 - Second Damper Switch (optional)
+      description: Leave blank if this room only has one damper
       selector:
         entity:
           domain: switch
@@ -324,6 +353,13 @@ blueprint:
         entity:
           domain: switch
 
+    room4_damper2:
+      name: Room 4 - Second Damper Switch (optional)
+      description: Leave blank if this room only has one damper
+      selector:
+        entity:
+          domain: switch
+
     room4_rule:
       name: Room 4 - Room Rule
       description: How this room participates in HVAC requests
@@ -385,15 +421,16 @@ variables:
   thermostat: !input thermostat
   multiplier: !input adjustment_multiplier
   buffer: !input neutral_buffer
-  poll_interval: !input poll_interval_minutes
   enable_toggle: !input enable_automation
   do_nothing_default: !input do_nothing_default_state
 
   # -------------------------------------------------------------------------
   # Level 2: Per-room raw !input bindings (flat, one per field per room)
+  # damper2 inputs may be empty string "" when left unconfigured
   # -------------------------------------------------------------------------
   r1_sensor: !input room1_sensor
   r1_damper: !input room1_damper
+  r1_damper2: !input room1_damper2
   r1_rule: !input room1_rule
   r1_priority: !input room1_priority
   r1_min: !input room1_min_temp
@@ -402,6 +439,7 @@ variables:
 
   r2_sensor: !input room2_sensor
   r2_damper: !input room2_damper
+  r2_damper2: !input room2_damper2
   r2_rule: !input room2_rule
   r2_priority: !input room2_priority
   r2_min: !input room2_min_temp
@@ -410,6 +448,7 @@ variables:
 
   r3_sensor: !input room3_sensor
   r3_damper: !input room3_damper
+  r3_damper2: !input room3_damper2
   r3_rule: !input room3_rule
   r3_priority: !input room3_priority
   r3_min: !input room3_min_temp
@@ -418,6 +457,7 @@ variables:
 
   r4_sensor: !input room4_sensor
   r4_damper: !input room4_damper
+  r4_damper2: !input room4_damper2
   r4_rule: !input room4_rule
   r4_priority: !input room4_priority
   r4_min: !input room4_min_temp
@@ -614,10 +654,11 @@ variables:
 
 ###########################################################################
 # TRIGGER — automation runs every X minutes or when disabled
+# NOTE: !input is used directly so HA validates the value at import time.
 ###########################################################################
 trigger:
   - platform: time_pattern
-    minutes: "/{{ poll_interval }}"
+    minutes: !input poll_interval_minutes
     id: time_poll
 
   - platform: state
@@ -695,11 +736,16 @@ action:
               level: info
 
           # ----------------------------------------------------------------
-          # STEP 3 — Damper control (set BEFORE HVAC change so vents
-          #          are in position before conditioned air flows)
+          # STEP 3 — Damper control (set BEFORE HVAC change so vents are
+          #          in position before conditioned air flows).
+          #
+          #   Primary damper: always actuated.
+          #   Secondary damper: only actuated when roomN_damper2 is configured
+          #   (non-empty). Using variable rN_damper2 in the if-guard rather
+          #   than !input so the condition can be evaluated at runtime.
           # ----------------------------------------------------------------
 
-          # Room 1 damper
+          # --- Room 1 ---
           - choose:
               - conditions: "{{ room1_damper_open }}"
                 sequence:
@@ -711,7 +757,22 @@ action:
                 target:
                   entity_id: !input room1_damper
 
-          # Room 2 damper
+          - if:
+              - condition: template
+                value_template: "{{ r1_damper2 != '' }}"
+            then:
+              - choose:
+                  - conditions: "{{ room1_damper_open }}"
+                    sequence:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ r1_damper2 }}"
+                default:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ r1_damper2 }}"
+
+          # --- Room 2 ---
           - choose:
               - conditions: "{{ room2_damper_open }}"
                 sequence:
@@ -723,7 +784,22 @@ action:
                 target:
                   entity_id: !input room2_damper
 
-          # Room 3 damper
+          - if:
+              - condition: template
+                value_template: "{{ r2_damper2 != '' }}"
+            then:
+              - choose:
+                  - conditions: "{{ room2_damper_open }}"
+                    sequence:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ r2_damper2 }}"
+                default:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ r2_damper2 }}"
+
+          # --- Room 3 ---
           - choose:
               - conditions: "{{ room3_damper_open }}"
                 sequence:
@@ -735,7 +811,22 @@ action:
                 target:
                   entity_id: !input room3_damper
 
-          # Room 4 damper
+          - if:
+              - condition: template
+                value_template: "{{ r3_damper2 != '' }}"
+            then:
+              - choose:
+                  - conditions: "{{ room3_damper_open }}"
+                    sequence:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ r3_damper2 }}"
+                default:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ r3_damper2 }}"
+
+          # --- Room 4 ---
           - choose:
               - conditions: "{{ room4_damper_open }}"
                 sequence:
@@ -746,6 +837,21 @@ action:
               - service: switch.turn_off
                 target:
                   entity_id: !input room4_damper
+
+          - if:
+              - condition: template
+                value_template: "{{ r4_damper2 != '' }}"
+            then:
+              - choose:
+                  - conditions: "{{ room4_damper_open }}"
+                    sequence:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ r4_damper2 }}"
+                default:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ r4_damper2 }}"
 
           # ----------------------------------------------------------------
           # STEP 4 — Deadband check: skip thermostat updates when already correct
