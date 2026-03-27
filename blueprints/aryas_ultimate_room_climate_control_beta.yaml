@@ -109,6 +109,52 @@ blueprint:
         entity:
           domain: input_boolean
 
+    # -------------------------------------------------------------------------
+    # MODE SELECTOR (optional) — Away and Night mode via input_select
+    # -------------------------------------------------------------------------
+
+    mode_entity:
+      name: Mode Selector (optional)
+      description: input_select entity whose state drives Away/Night mode. Leave blank to disable.
+      default: {}
+      selector:
+        entity:
+          domain: input_select
+
+    away_mode_value:
+      name: Away Mode State Value
+      description: The input_select state that activates Away mode (e.g. "Away")
+      default: "Away"
+      selector:
+        text: {}
+
+    night_mode_value:
+      name: Night Mode State Value
+      description: The input_select state that activates Night mode (e.g. "Night")
+      default: "Night"
+      selector:
+        text: {}
+
+    away_min_temp:
+      name: Away Mode - Min Temperature (°F)
+      description: Temperature floor enforced for all rooms when Away mode is active
+      default: 60
+      selector:
+        number:
+          min: 50
+          max: 75
+          step: 0.5
+
+    away_max_temp:
+      name: Away Mode - Max Temperature (°F)
+      description: Temperature ceiling enforced for all rooms when Away mode is active
+      default: 75
+      selector:
+        number:
+          min: 55
+          max: 85
+          step: 0.5
+
     ###########################################################################
     # ROOM 1 CONFIGURATION
     ###########################################################################
@@ -184,6 +230,24 @@ blueprint:
       default: true
       selector:
         boolean: {}
+
+    room1_name:
+      name: Room 1 - Display Name
+      description: Used in log messages
+      default: "Room 1"
+      selector:
+        text: {}
+
+    room1_schedule:
+      name: Room 1 - Schedule
+      description: "always: follows enabled toggle | night_only: active only in Night mode | day_only: inactive in Night mode"
+      default: "always"
+      selector:
+        select:
+          options:
+            - always
+            - night_only
+            - day_only
 
     ###########################################################################
     # ROOM 2 CONFIGURATION
@@ -261,6 +325,24 @@ blueprint:
       selector:
         boolean: {}
 
+    room2_name:
+      name: Room 2 - Display Name
+      description: Used in log messages
+      default: "Room 2"
+      selector:
+        text: {}
+
+    room2_schedule:
+      name: Room 2 - Schedule
+      description: "always: follows enabled toggle | night_only: active only in Night mode | day_only: inactive in Night mode"
+      default: "always"
+      selector:
+        select:
+          options:
+            - always
+            - night_only
+            - day_only
+
     ###########################################################################
     # ROOM 3 CONFIGURATION
     ###########################################################################
@@ -336,6 +418,24 @@ blueprint:
       default: true
       selector:
         boolean: {}
+
+    room3_name:
+      name: Room 3 - Display Name
+      description: Used in log messages
+      default: "Room 3"
+      selector:
+        text: {}
+
+    room3_schedule:
+      name: Room 3 - Schedule
+      description: "always: follows enabled toggle | night_only: active only in Night mode | day_only: inactive in Night mode"
+      default: "always"
+      selector:
+        select:
+          options:
+            - always
+            - night_only
+            - day_only
 
     ###########################################################################
     # ROOM 4 CONFIGURATION
@@ -413,6 +513,24 @@ blueprint:
       selector:
         boolean: {}
 
+    room4_name:
+      name: Room 4 - Display Name
+      description: Used in log messages
+      default: "Room 4"
+      selector:
+        text: {}
+
+    room4_schedule:
+      name: Room 4 - Schedule
+      description: "always: follows enabled toggle | night_only: active only in Night mode | day_only: inactive in Night mode"
+      default: "always"
+      selector:
+        select:
+          options:
+            - always
+            - night_only
+            - day_only
+
 ###########################################################################
 # VARIABLES — computed once per automation run
 # IMPORTANT: dependency order is strict — do not reorder these blocks.
@@ -427,6 +545,11 @@ variables:
   buffer: !input neutral_buffer
   enable_toggle: !input enable_automation
   do_nothing_default: !input do_nothing_default_state
+  mode_entity: !input mode_entity
+  away_mode_val: !input away_mode_value
+  night_mode_val: !input night_mode_value
+  away_min: !input away_min_temp
+  away_max: !input away_max_temp
 
   # -------------------------------------------------------------------------
   # Level 2: Per-room raw !input bindings (flat, one per field per room)
@@ -440,6 +563,8 @@ variables:
   r1_min: !input room1_min_temp
   r1_max: !input room1_max_temp
   r1_enabled: !input room1_enabled
+  r1_name: !input room1_name
+  r1_schedule: !input room1_schedule
 
   r2_sensor: !input room2_sensor
   r2_damper: !input room2_damper
@@ -449,6 +574,8 @@ variables:
   r2_min: !input room2_min_temp
   r2_max: !input room2_max_temp
   r2_enabled: !input room2_enabled
+  r2_name: !input room2_name
+  r2_schedule: !input room2_schedule
 
   r3_sensor: !input room3_sensor
   r3_damper: !input room3_damper
@@ -458,6 +585,8 @@ variables:
   r3_min: !input room3_min_temp
   r3_max: !input room3_max_temp
   r3_enabled: !input room3_enabled
+  r3_name: !input room3_name
+  r3_schedule: !input room3_schedule
 
   r4_sensor: !input room4_sensor
   r4_damper: !input room4_damper
@@ -467,32 +596,70 @@ variables:
   r4_min: !input room4_min_temp
   r4_max: !input room4_max_temp
   r4_enabled: !input room4_enabled
+  r4_name: !input room4_name
+  r4_schedule: !input room4_schedule
 
   # -------------------------------------------------------------------------
-  # Level 3: rooms — aggregated list of all enabled rooms with valid sensors
-  # Each room dict contains: id, sensor, damper, rule, priority, min, max,
-  #   enabled, temp, target, needs_heat, needs_cool, is_comfortable,
-  #   deviation, desired_setpoint
+  # Level 2.5: Mode resolution — resolved before rooms loop needs them
+  # -------------------------------------------------------------------------
+  mode_entity_active: >
+    {{ mode_entity is string and mode_entity != '' }}
+
+  current_mode: >
+    {% if mode_entity is string and mode_entity != '' %}
+      {{ states(mode_entity) }}
+    {% else %}
+      normal
+    {% endif %}
+
+  is_away_mode: >
+    {{ mode_entity is string and mode_entity != ''
+       and states(mode_entity) == away_mode_val }}
+
+  is_night_mode: >
+    {{ mode_entity is string and mode_entity != ''
+       and states(mode_entity) == night_mode_val }}
+
+  # -------------------------------------------------------------------------
+  # Level 3: rooms — active rooms with valid sensors, filtered by schedule
+  #
+  # Schedule gate:
+  #   always    → included when r.enabled is true
+  #   night_only → included only when Night mode is active (ignores enabled toggle)
+  #   day_only  → included only when Night mode is NOT active (ignores enabled toggle)
+  #
+  # Away mode: substitutes global away_min/away_max for per-room bounds.
+  # Room rules (heat_only, cool_only, etc.) are still respected.
   # -------------------------------------------------------------------------
   rooms: >
     {% set ns = namespace(result=[]) %}
     {% set room_defs = [
-      {'id': 1, 'sensor': r1_sensor, 'damper': r1_damper, 'rule': r1_rule,
-       'priority': r1_priority, 'min': r1_min, 'max': r1_max, 'enabled': r1_enabled},
-      {'id': 2, 'sensor': r2_sensor, 'damper': r2_damper, 'rule': r2_rule,
-       'priority': r2_priority, 'min': r2_min, 'max': r2_max, 'enabled': r2_enabled},
-      {'id': 3, 'sensor': r3_sensor, 'damper': r3_damper, 'rule': r3_rule,
-       'priority': r3_priority, 'min': r3_min, 'max': r3_max, 'enabled': r3_enabled},
-      {'id': 4, 'sensor': r4_sensor, 'damper': r4_damper, 'rule': r4_rule,
-       'priority': r4_priority, 'min': r4_min, 'max': r4_max, 'enabled': r4_enabled}
+      {'id': 1, 'name': r1_name, 'sensor': r1_sensor, 'damper': r1_damper,
+       'rule': r1_rule, 'priority': r1_priority, 'min': r1_min, 'max': r1_max,
+       'enabled': r1_enabled, 'schedule': r1_schedule},
+      {'id': 2, 'name': r2_name, 'sensor': r2_sensor, 'damper': r2_damper,
+       'rule': r2_rule, 'priority': r2_priority, 'min': r2_min, 'max': r2_max,
+       'enabled': r2_enabled, 'schedule': r2_schedule},
+      {'id': 3, 'name': r3_name, 'sensor': r3_sensor, 'damper': r3_damper,
+       'rule': r3_rule, 'priority': r3_priority, 'min': r3_min, 'max': r3_max,
+       'enabled': r3_enabled, 'schedule': r3_schedule},
+      {'id': 4, 'name': r4_name, 'sensor': r4_sensor, 'damper': r4_damper,
+       'rule': r4_rule, 'priority': r4_priority, 'min': r4_min, 'max': r4_max,
+       'enabled': r4_enabled, 'schedule': r4_schedule}
     ] %}
     {% for r in room_defs %}
-      {% if r.enabled and is_number(states(r.sensor)) %}
+      {% set schedule_active =
+          (r.schedule == 'always' and r.enabled) or
+          (r.schedule == 'night_only' and is_night_mode) or
+          (r.schedule == 'day_only' and not is_night_mode) %}
+      {% if schedule_active and is_number(states(r.sensor)) %}
+        {% set eff_min = away_min if is_away_mode else r.min %}
+        {% set eff_max = away_max if is_away_mode else r.max %}
         {% set temp = states(r.sensor) | float %}
-        {% set target = ((r.min + r.max) / 2) | round(1) %}
-        {% set needs_heat = (temp < r.min) and r.rule in ['heat_only', 'heat_and_cool', 'hold_range'] %}
-        {% set needs_cool = (temp > r.max) and r.rule in ['cool_only', 'heat_and_cool', 'hold_range'] %}
-        {% set is_comfortable = (temp >= r.min) and (temp <= r.max) %}
+        {% set target = ((eff_min + eff_max) / 2) | round(1) %}
+        {% set needs_heat = (temp < eff_min) and r.rule in ['heat_only', 'heat_and_cool', 'hold_range'] %}
+        {% set needs_cool = (temp > eff_max) and r.rule in ['cool_only', 'heat_and_cool', 'hold_range'] %}
+        {% set is_comfortable = (temp >= eff_min) and (temp <= eff_max) %}
         {% set deviation = (temp - target) | abs | round(2) %}
         {% set desired_sp = (target - (multiplier * (temp - target))) | round(1) %}
         {% set room_state = dict(r,
@@ -502,10 +669,52 @@ variables:
           needs_cool=needs_cool,
           is_comfortable=is_comfortable,
           deviation=deviation,
-          desired_setpoint=desired_sp
+          desired_setpoint=desired_sp,
+          eff_min=eff_min,
+          eff_max=eff_max
         ) %}
         {% set ns.result = ns.result + [room_state] %}
       {% endif %}
+    {% endfor %}
+    {{ ns.result }}
+
+  # -------------------------------------------------------------------------
+  # Level 3.5: all_rooms_debug — all 4 rooms regardless of schedule/sensor
+  # Used exclusively for verbose logging; never drives HVAC logic
+  # -------------------------------------------------------------------------
+  all_rooms_debug: >
+    {% set ns = namespace(result=[]) %}
+    {% set room_defs = [
+      {'id': 1, 'name': r1_name, 'sensor': r1_sensor, 'rule': r1_rule,
+       'priority': r1_priority, 'min': r1_min, 'max': r1_max,
+       'enabled': r1_enabled, 'schedule': r1_schedule},
+      {'id': 2, 'name': r2_name, 'sensor': r2_sensor, 'rule': r2_rule,
+       'priority': r2_priority, 'min': r2_min, 'max': r2_max,
+       'enabled': r2_enabled, 'schedule': r2_schedule},
+      {'id': 3, 'name': r3_name, 'sensor': r3_sensor, 'rule': r3_rule,
+       'priority': r3_priority, 'min': r3_min, 'max': r3_max,
+       'enabled': r3_enabled, 'schedule': r3_schedule},
+      {'id': 4, 'name': r4_name, 'sensor': r4_sensor, 'rule': r4_rule,
+       'priority': r4_priority, 'min': r4_min, 'max': r4_max,
+       'enabled': r4_enabled, 'schedule': r4_schedule}
+    ] %}
+    {% for r in room_defs %}
+      {% set has_temp = is_number(states(r.sensor)) %}
+      {% set schedule_active =
+          (r.schedule == 'always' and r.enabled) or
+          (r.schedule == 'night_only' and is_night_mode) or
+          (r.schedule == 'day_only' and not is_night_mode) %}
+      {% set eff_min = away_min if is_away_mode else r.min %}
+      {% set eff_max = away_max if is_away_mode else r.max %}
+      {% set temp = states(r.sensor) | float(none) if has_temp else none %}
+      {% set entry = dict(r,
+        has_temp=has_temp,
+        schedule_active=schedule_active,
+        eff_min=eff_min,
+        eff_max=eff_max,
+        temp=temp
+      ) %}
+      {% set ns.result = ns.result + [entry] %}
     {% endfor %}
     {{ ns.result }}
 
@@ -556,6 +765,24 @@ variables:
       {{ winning_cool_room }}
     {% else %}
       none
+    {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Level 7.5: winning room derived values (moved from inline action step
+  # so they are available for the verbose log which runs before the deadband check)
+  # -------------------------------------------------------------------------
+  winning_deviation: >
+    {% if winning_room != 'none' and winning_room is mapping %}
+      {{ winning_room.deviation }}
+    {% else %}
+      0
+    {% endif %}
+
+  winning_setpoint: >
+    {% if winning_room != 'none' and winning_room is mapping %}
+      {{ winning_room.desired_setpoint }}
+    {% else %}
+      0
     {% endif %}
 
   # -------------------------------------------------------------------------
@@ -727,16 +954,48 @@ action:
             value_template: "{{ rooms | length > 0 }}"
 
           # ----------------------------------------------------------------
-          # STEP 2 — Log current evaluation state (BETA — remove for stable)
+          # STEP 2 — Verbose decision log
           # ----------------------------------------------------------------
           - service: system_log.write
             data:
               message: >
-                [v0.2.0b] Check {{ now().strftime('%H:%M') }}
-                | rooms={{ rooms | map(attribute='id') | list }}
-                | hvac_decision={{ hvac_decision }}
-                | winning_room={{ winning_room.id if winning_room != 'none' and winning_room is mapping else 'none' }}
-                | dampers open: r1={{ room1_damper_open }}, r2={{ room2_damper_open }}, r3={{ room3_damper_open }}, r4={{ room4_damper_open }}
+                {% set mode_label = current_mode if mode_entity_active else 'Normal' %}
+                {% set winner_label = 'Room ' ~ winning_room.id ~ ' (' ~ winning_room.name ~ ')'
+                   if winning_room != 'none' and winning_room is mapping else 'none' %}
+                [v0.2.0b] {{ now().strftime('%H:%M') }} | Mode: {{ mode_label }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
+                {% for r in all_rooms_debug %}
+                  {% set active_room = rooms | selectattr('id', 'eq', r.id) | list %}
+                  {% set tag = r.rule %}
+                  {% set tag = tag ~ ', night_only' if r.schedule == 'night_only' else tag %}
+                  {% set tag = tag ~ ', day_only' if r.schedule == 'day_only' else tag %}
+                  {% if not r.has_temp or (r.schedule == 'always' and not r.enabled) %}
+                    {% set status = 'disabled/unavailable' %}
+                    {% set damper_lbl = 'damper CLOSED' %}
+                  {% elif not r.schedule_active %}
+                    {% set inactive_why = 'day mode' if r.schedule == 'night_only' else 'night mode' %}
+                    {% set status = 'INACTIVE (' ~ inactive_why ~ ')' %}
+                    {% set damper_lbl = 'damper CLOSED' %}
+                  {% else %}
+                    {% set ar = active_room[0] %}
+                    {% set away_tag = ' [away]' if is_away_mode else '' %}
+                    {% if ar.needs_heat %}
+                      {% set status = ar.temp | string ~ '°F | too cold <' ~ ar.eff_min ~ '°F' ~ away_tag ~ ' → HEAT' %}
+                    {% elif ar.needs_cool %}
+                      {% set status = ar.temp | string ~ '°F | too warm >' ~ ar.eff_max ~ '°F' ~ away_tag ~ ' → COOL' %}
+                    {% else %}
+                      {% set status = ar.temp | string ~ '°F | comfortable (' ~ ar.eff_min ~ '–' ~ ar.eff_max ~ '°F)' ~ away_tag %}
+                    {% endif %}
+                    {% if r.id == 1 %}{% set d_open = room1_damper_open %}
+                    {% elif r.id == 2 %}{% set d_open = room2_damper_open %}
+                    {% elif r.id == 3 %}{% set d_open = room3_damper_open %}
+                    {% else %}{% set d_open = room4_damper_open %}{% endif %}
+                    {% set damper_lbl = 'damper OPEN' if d_open else 'damper CLOSED' %}
+                  {% endif %}
+                  {% set arrow = ' ← WINNER' if winning_room != 'none' and winning_room is mapping and winning_room.id == r.id else '' %}
+                  Room {{ r.id }} ({{ r.name }}) [{{ tag }}] {{ status }} | {{ damper_lbl }}{{ arrow }}
+                {% endfor %}
+                {% if hvac_decision == 'comfortable' %}Thermostat → heat_cool band {{ neutral_low }}–{{ neutral_high }}°F
+                {% else %}Thermostat → {{ hvac_decision }} mode, setpoint {{ winning_setpoint }}°F{% endif %}
               level: info
 
           # ----------------------------------------------------------------
@@ -864,18 +1123,6 @@ action:
               current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
               current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
               current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
-              winning_deviation: >
-                {% if winning_room != 'none' and winning_room is mapping %}
-                  {{ winning_room.deviation }}
-                {% else %}
-                  0
-                {% endif %}
-              winning_setpoint: >
-                {% if winning_room != 'none' and winning_room is mapping %}
-                  {{ winning_room.desired_setpoint }}
-                {% else %}
-                  0
-                {% endif %}
 
           - condition: or
             conditions:
@@ -909,12 +1156,6 @@ action:
                       entity_id: !input thermostat
                     data:
                       temperature: "{{ winning_setpoint }}"
-                  - service: system_log.write
-                    data:
-                      message: >
-                        Heating → room {{ winning_room.id }} at {{ winning_room.temp }}°F
-                        (target {{ winning_room.target }}°F) → setpoint {{ winning_setpoint }}°F
-                      level: info
 
               # BRANCH: Active cooling needed
               - conditions: "{{ hvac_decision == 'cool' }}"
@@ -931,12 +1172,6 @@ action:
                       entity_id: !input thermostat
                     data:
                       temperature: "{{ winning_setpoint }}"
-                  - service: system_log.write
-                    data:
-                      message: >
-                        Cooling → room {{ winning_room.id }} at {{ winning_room.temp }}°F
-                        (target {{ winning_room.target }}°F) → setpoint {{ winning_setpoint }}°F
-                      level: info
 
               # BRANCH: All rooms comfortable → wide neutral band
             default:
@@ -951,19 +1186,6 @@ action:
                 data:
                   target_temp_low: "{{ neutral_low }}"
                   target_temp_high: "{{ neutral_high }}"
-              - service: system_log.write
-                data:
-                  message: >
-                    All rooms comfortable → wide comfort band {{ neutral_low }}–{{ neutral_high }}°F
-                  level: info
-
-          # ----------------------------------------------------------------
-          # STEP 6 — Final log
-          # ----------------------------------------------------------------
-          - service: system_log.write
-            data:
-              message: "[v0.2.0b] Cycle complete"
-              level: info
 
 # Prevent overlapping runs
 mode: single
