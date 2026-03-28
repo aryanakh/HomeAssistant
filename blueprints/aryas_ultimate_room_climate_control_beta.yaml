@@ -14,7 +14,7 @@ blueprint:
       - Per-room damper control via relay board (up to 4 rooms, up to 2 dampers per room)
       - 5 room rules: heat_only, cool_only, heat_and_cool, hold_range, do_nothing
       - Widens the comfort band when all rooms are stable
-      - Adjusts aggressiveness using a global multiplier
+
       - Avoids excessive thermostat updates with deadband checks
       - Allows custom polling intervals
 
@@ -62,17 +62,6 @@ blueprint:
             - open
             - closed
       default: open
-
-    adjustment_multiplier:
-      name: Aggressiveness Multiplier
-      description: 1.0 = gentle, 1.5 = balanced, 2.0 = strong
-      default: 1.5
-      selector:
-        number:
-          min: 0.5
-          max: 3.0
-          step: 0.1
-          mode: slider
 
     neutral_buffer:
       name: Neutral Range Buffer (°F)
@@ -561,7 +550,6 @@ variables:
   # Level 1: Global !input bindings
   # -------------------------------------------------------------------------
   thermostat: !input thermostat
-  multiplier: !input adjustment_multiplier
   buffer: !input neutral_buffer
   enable_toggle: !input enable_automation
   do_nothing_default: !input do_nothing_default_state
@@ -683,8 +671,7 @@ variables:
         {% set needs_cool = (temp > eff_max) and r.rule in ['cool_only', 'heat_and_cool', 'hold_range'] %}
         {% set is_comfortable = (temp >= eff_min) and (temp <= eff_max) %}
         {% set deviation = (temp - target) | abs | round(2) %}
-        {% set raw_sp = (target - (multiplier * (temp - target))) | round(1) %}
-        {% set desired_sp = [[raw_sp, min_sp] | max, max_sp] | min %}
+        {% set desired_sp = [[target, min_sp] | max, max_sp] | min %}
         {% set room_state = dict(r,
           temp=temp,
           target=target,
