@@ -155,6 +155,26 @@ blueprint:
           max: 85
           step: 0.5
 
+    min_setpoint:
+      name: Minimum Thermostat Setpoint (°F)
+      description: The lowest temperature the thermostat will ever be commanded to. Prevents the proportional formula from producing dangerously cold setpoints.
+      default: 65
+      selector:
+        number:
+          min: 55
+          max: 72
+          step: 0.5
+
+    max_setpoint:
+      name: Maximum Thermostat Setpoint (°F)
+      description: The highest temperature the thermostat will ever be commanded to. Prevents the proportional formula from producing dangerously hot setpoints.
+      default: 80
+      selector:
+        number:
+          min: 73
+          max: 90
+          step: 0.5
+
     ###########################################################################
     # ROOM 1 CONFIGURATION
     ###########################################################################
@@ -550,6 +570,8 @@ variables:
   night_mode_val: !input night_mode_value
   away_min: !input away_min_temp
   away_max: !input away_max_temp
+  min_sp: !input min_setpoint
+  max_sp: !input max_setpoint
 
   # -------------------------------------------------------------------------
   # Level 2: Per-room raw !input bindings (flat, one per field per room)
@@ -661,7 +683,8 @@ variables:
         {% set needs_cool = (temp > eff_max) and r.rule in ['cool_only', 'heat_and_cool', 'hold_range'] %}
         {% set is_comfortable = (temp >= eff_min) and (temp <= eff_max) %}
         {% set deviation = (temp - target) | abs | round(2) %}
-        {% set desired_sp = (target - (multiplier * (temp - target))) | round(1) %}
+        {% set raw_sp = (target - (multiplier * (temp - target))) | round(1) %}
+        {% set desired_sp = [[raw_sp, min_sp] | max, max_sp] | min %}
         {% set room_state = dict(r,
           temp=temp,
           target=target,
