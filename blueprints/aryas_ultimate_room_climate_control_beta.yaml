@@ -14,7 +14,7 @@ blueprint:
       - Per-room damper control via relay board (up to 4 rooms, up to 2 dampers per room)
       - 5 room rules: heat_only, cool_only, heat_and_cool, hold_range, do_nothing
       - Widens the comfort band when all rooms are stable
-      - Adjusts aggressiveness using a global multiplier
+
       - Avoids excessive thermostat updates with deadband checks
       - Allows custom polling intervals
 
@@ -62,17 +62,6 @@ blueprint:
             - open
             - closed
       default: open
-
-    adjustment_multiplier:
-      name: Aggressiveness Multiplier
-      description: 1.0 = gentle, 1.5 = balanced, 2.0 = strong
-      default: 1.5
-      selector:
-        number:
-          min: 0.5
-          max: 3.0
-          step: 0.1
-          mode: slider
 
     neutral_buffer:
       name: Neutral Range Buffer (°F)
@@ -153,6 +142,36 @@ blueprint:
         number:
           min: 55
           max: 85
+          step: 0.5
+
+    min_setpoint:
+      name: Minimum Thermostat Setpoint (°F)
+      description: Hard floor — the thermostat will never be commanded below this, regardless of how many cycles the room stays out of range.
+      default: 65
+      selector:
+        number:
+          min: 55
+          max: 72
+          step: 0.5
+
+    max_setpoint:
+      name: Maximum Thermostat Setpoint (°F)
+      description: Hard ceiling — the thermostat will never be commanded above this.
+      default: 80
+      selector:
+        number:
+          min: 73
+          max: 90
+          step: 0.5
+
+    setpoint_step:
+      name: Setpoint Step (°F per cycle)
+      description: How much to nudge the thermostat setpoint each polling cycle relative to the thermostat's current reading. e.g. 1°F means each cycle the setpoint moves 1°F further until the room is in range.
+      default: 1
+      selector:
+        number:
+          min: 0.5
+          max: 3.0
           step: 0.5
 
     ###########################################################################
@@ -541,7 +560,6 @@ variables:
   # Level 1: Global !input bindings
   # -------------------------------------------------------------------------
   thermostat: !input thermostat
-  multiplier: !input adjustment_multiplier
   buffer: !input neutral_buffer
   enable_toggle: !input enable_automation
   do_nothing_default: !input do_nothing_default_state
@@ -550,6 +568,9 @@ variables:
   night_mode_val: !input night_mode_value
   away_min: !input away_min_temp
   away_max: !input away_max_temp
+  min_sp: !input min_setpoint
+  max_sp: !input max_setpoint
+  setpoint_step: !input setpoint_step
 
   # -------------------------------------------------------------------------
   # Level 2: Per-room raw !input bindings (flat, one per field per room)
@@ -661,7 +682,6 @@ variables:
         {% set needs_cool = (temp > eff_max) and r.rule in ['cool_only', 'heat_and_cool', 'hold_range'] %}
         {% set is_comfortable = (temp >= eff_min) and (temp <= eff_max) %}
         {% set deviation = (temp - target) | abs | round(2) %}
-        {% set desired_sp = (target - (multiplier * (temp - target))) | round(1) %}
         {% set room_state = dict(r,
           temp=temp,
           target=target,
@@ -669,7 +689,6 @@ variables:
           needs_cool=needs_cool,
           is_comfortable=is_comfortable,
           deviation=deviation,
-          desired_setpoint=desired_sp,
           eff_min=eff_min,
           eff_max=eff_max
         ) %}
@@ -780,7 +799,13 @@ variables:
 
   winning_setpoint: >
     {% if winning_room != 'none' and winning_room is mapping %}
-      {{ winning_room.desired_setpoint }}
+      {% set therm_temp = state_attr(thermostat, 'current_temperature') | float(69) %}
+      {% if hvac_decision == 'heat' %}
+        {% set raw = (therm_temp + setpoint_step) | round(1) %}
+      {% else %}
+        {% set raw = (therm_temp - setpoint_step) | round(1) %}
+      {% endif %}
+      {{ [[raw, min_sp] | max, max_sp] | min }}
     {% else %}
       0
     {% endif %}
