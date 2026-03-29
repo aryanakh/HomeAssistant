@@ -1037,11 +1037,11 @@ action:
           - choose:
               - conditions: "{{ room1_damper_open }}"
                 sequence:
-                  - service: switch.turn_on
+                  - service: switch.turn_off
                     target:
                       entity_id: !input room1_damper
             default:
-              - service: switch.turn_off
+              - service: switch.turn_on
                 target:
                   entity_id: !input room1_damper
 
@@ -1052,11 +1052,11 @@ action:
               - choose:
                   - conditions: "{{ room1_damper_open }}"
                     sequence:
-                      - service: switch.turn_on
+                      - service: switch.turn_off
                         target:
                           entity_id: "{{ r1_damper2 }}"
                 default:
-                  - service: switch.turn_off
+                  - service: switch.turn_on
                     target:
                       entity_id: "{{ r1_damper2 }}"
 
@@ -1064,11 +1064,11 @@ action:
           - choose:
               - conditions: "{{ room2_damper_open }}"
                 sequence:
-                  - service: switch.turn_on
+                  - service: switch.turn_off
                     target:
                       entity_id: !input room2_damper
             default:
-              - service: switch.turn_off
+              - service: switch.turn_on
                 target:
                   entity_id: !input room2_damper
 
@@ -1079,11 +1079,11 @@ action:
               - choose:
                   - conditions: "{{ room2_damper_open }}"
                     sequence:
-                      - service: switch.turn_on
+                      - service: switch.turn_off
                         target:
                           entity_id: "{{ r2_damper2 }}"
                 default:
-                  - service: switch.turn_off
+                  - service: switch.turn_on
                     target:
                       entity_id: "{{ r2_damper2 }}"
 
@@ -1091,11 +1091,11 @@ action:
           - choose:
               - conditions: "{{ room3_damper_open }}"
                 sequence:
-                  - service: switch.turn_on
+                  - service: switch.turn_off
                     target:
                       entity_id: !input room3_damper
             default:
-              - service: switch.turn_off
+              - service: switch.turn_on
                 target:
                   entity_id: !input room3_damper
 
@@ -1106,11 +1106,11 @@ action:
               - choose:
                   - conditions: "{{ room3_damper_open }}"
                     sequence:
-                      - service: switch.turn_on
+                      - service: switch.turn_off
                         target:
                           entity_id: "{{ r3_damper2 }}"
                 default:
-                  - service: switch.turn_off
+                  - service: switch.turn_on
                     target:
                       entity_id: "{{ r3_damper2 }}"
 
@@ -1118,11 +1118,11 @@ action:
           - choose:
               - conditions: "{{ room4_damper_open }}"
                 sequence:
-                  - service: switch.turn_on
+                  - service: switch.turn_off
                     target:
                       entity_id: !input room4_damper
             default:
-              - service: switch.turn_off
+              - service: switch.turn_on
                 target:
                   entity_id: !input room4_damper
 
@@ -1133,11 +1133,11 @@ action:
               - choose:
                   - conditions: "{{ room4_damper_open }}"
                     sequence:
-                      - service: switch.turn_on
+                      - service: switch.turn_off
                         target:
                           entity_id: "{{ r4_damper2 }}"
                 default:
-                  - service: switch.turn_off
+                  - service: switch.turn_on
                     target:
                       entity_id: "{{ r4_damper2 }}"
 
