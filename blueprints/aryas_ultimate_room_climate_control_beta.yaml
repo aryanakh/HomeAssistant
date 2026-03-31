@@ -166,8 +166,8 @@ blueprint:
 
     setpoint_step:
       name: Setpoint Step (°F per cycle)
-      description: How much to nudge the thermostat setpoint each polling cycle relative to the thermostat's current reading. e.g. 1°F means each cycle the setpoint moves 1°F further until the room is in range.
-      default: 1
+      description: How much to nudge the thermostat setpoint each polling cycle relative to the thermostat's current reading. e.g. 2°F means each cycle the setpoint moves 2°F further until the room is in range.
+      default: 2
       selector:
         number:
           min: 0.5
@@ -797,19 +797,6 @@ variables:
       0
     {% endif %}
 
-  winning_setpoint: >
-    {% if winning_room != 'none' and winning_room is mapping %}
-      {% set therm_temp = state_attr(thermostat, 'current_temperature') | float(69) %}
-      {% if hvac_decision == 'heat' %}
-        {% set raw = (therm_temp + setpoint_step) | round(1) %}
-      {% else %}
-        {% set raw = (therm_temp - setpoint_step) | round(1) %}
-      {% endif %}
-      {{ [[raw, min_sp] | max, max_sp] | min }}
-    {% else %}
-      0
-    {% endif %}
-
   # -------------------------------------------------------------------------
   # Level 8: comfort midpoint — average of all enabled room targets
   # -------------------------------------------------------------------------
@@ -1020,7 +1007,7 @@ action:
                   Room {{ r.id }} ({{ r.name }}) [{{ tag }}] {{ status }} | {{ damper_lbl }}{{ arrow }}
                 {% endfor %}
                 {% if hvac_decision == 'comfortable' %}Thermostat → heat_cool band {{ neutral_low }}–{{ neutral_high }}°F
-                {% else %}Thermostat → {{ hvac_decision }} mode, setpoint {{ winning_setpoint }}°F{% endif %}
+                {% else %}Thermostat → {{ hvac_decision }} mode, setpoint = thermostat_temp {{ '+' if hvac_decision == 'heat' else '-' }} {{ setpoint_step }}°F (clamped {{ min_sp }}–{{ max_sp }}°F){% endif %}
               level: info
 
           # ----------------------------------------------------------------
@@ -1148,6 +1135,19 @@ action:
               current_setpoint: "{{ state_attr(thermostat, 'temperature') | float(none) }}"
               current_low: "{{ state_attr(thermostat, 'target_temp_low') | float(none) }}"
               current_high: "{{ state_attr(thermostat, 'target_temp_high') | float(none) }}"
+              # Read live thermostat sensor, then step up (heat) or down (cool)
+              winning_setpoint: >
+                {% if winning_room != 'none' and winning_room is mapping %}
+                  {% set therm_temp = state_attr(thermostat, 'current_temperature') | float %}
+                  {% if hvac_decision == 'heat' %}
+                    {% set raw = (therm_temp + setpoint_step) | round(1) %}
+                  {% else %}
+                    {% set raw = (therm_temp - setpoint_step) | round(1) %}
+                  {% endif %}
+                  {{ [[raw, min_sp] | max, max_sp] | min }}
+                {% else %}
+                  0
+                {% endif %}
 
           - condition: or
             conditions:
