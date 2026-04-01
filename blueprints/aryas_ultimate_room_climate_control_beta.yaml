@@ -124,6 +124,20 @@ blueprint:
       selector:
         text: {}
 
+    night_start_time:
+      name: Night Start Time
+      description: Time when the night window begins (night_only rooms activate). Default 9:00 PM.
+      default: "21:00:00"
+      selector:
+        time: {}
+
+    night_end_time:
+      name: Night End Time
+      description: Time when the night window ends (night_only rooms deactivate). Default 8:00 AM.
+      default: "08:00:00"
+      selector:
+        time: {}
+
     away_min_temp:
       name: Away Mode - Min Temperature (°F)
       description: Temperature floor enforced for all rooms when Away mode is active
@@ -566,6 +580,8 @@ variables:
   mode_entity: !input mode_entity
   away_mode_val: !input away_mode_value
   night_mode_val: !input night_mode_value
+  night_start: !input night_start_time
+  night_end: !input night_end_time
   away_min: !input away_min_temp
   away_max: !input away_max_temp
   min_sp: !input min_setpoint
@@ -638,8 +654,18 @@ variables:
        and states(mode_entity) == away_mode_val }}
 
   is_night_mode: >
-    {{ mode_entity is string and mode_entity != ''
-       and states(mode_entity) == night_mode_val }}
+    {% set mode_night = mode_entity is string and mode_entity != ''
+       and states(mode_entity) == night_mode_val %}
+    {% set now_min = now().hour * 60 + now().minute %}
+    {% set start_min = night_start.split(':')[0] | int * 60 + night_start.split(':')[1] | int %}
+    {% set end_min = night_end.split(':')[0] | int * 60 + night_end.split(':')[1] | int %}
+    {% if start_min > end_min %}
+      {# Overnight span — wraps past midnight (e.g. 21:00 to 08:00) #}
+      {{ mode_night or (now_min >= start_min or now_min < end_min) }}
+    {% else %}
+      {# Same-day span #}
+      {{ mode_night or (now_min >= start_min and now_min < end_min) }}
+    {% endif %}
 
   # -------------------------------------------------------------------------
   # Level 3: rooms — active rooms with valid sensors, filtered by schedule
