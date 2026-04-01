@@ -836,9 +836,15 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' }}
+      {# Close cool_only rooms only if already above their max — hot air will make them worse #}
+      {% if r[0].rule == 'cool_only' %}
+        {{ r[0].temp <= r[0].eff_max }}
+      {% else %}
+        true
+      {% endif %}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' }}
+      {# Close any room already below its min — cool air will push it further out of range #}
+      {{ r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
@@ -852,9 +858,13 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' }}
+      {% if r[0].rule == 'cool_only' %}
+        {{ r[0].temp <= r[0].eff_max }}
+      {% else %}
+        true
+      {% endif %}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' }}
+      {{ r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
@@ -868,9 +878,13 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' }}
+      {% if r[0].rule == 'cool_only' %}
+        {{ r[0].temp <= r[0].eff_max }}
+      {% else %}
+        true
+      {% endif %}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' }}
+      {{ r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
@@ -884,9 +898,13 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' }}
+      {% if r[0].rule == 'cool_only' %}
+        {{ r[0].temp <= r[0].eff_max }}
+      {% else %}
+        true
+      {% endif %}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' }}
+      {{ r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
