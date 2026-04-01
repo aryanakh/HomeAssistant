@@ -833,15 +833,14 @@ variables:
       false
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
-    {% elif r[0].rule == 'heat_only' %}
-      {{ hvac_decision == 'heat' and r[0].needs_heat }}
-    {% elif r[0].rule == 'cool_only' %}
-      {{ hvac_decision == 'cool' and r[0].needs_cool }}
-    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
-      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
-         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% elif hvac_decision == 'comfortable' %}
+      true
+    {% elif hvac_decision == 'heat' %}
+      {{ r[0].rule != 'cool_only' }}
+    {% elif hvac_decision == 'cool' %}
+      {{ r[0].rule != 'heat_only' }}
     {% else %}
-      false
+      true
     {% endif %}
 
   room2_damper_open: >
@@ -850,15 +849,14 @@ variables:
       false
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
-    {% elif r[0].rule == 'heat_only' %}
-      {{ hvac_decision == 'heat' and r[0].needs_heat }}
-    {% elif r[0].rule == 'cool_only' %}
-      {{ hvac_decision == 'cool' and r[0].needs_cool }}
-    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
-      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
-         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% elif hvac_decision == 'comfortable' %}
+      true
+    {% elif hvac_decision == 'heat' %}
+      {{ r[0].rule != 'cool_only' }}
+    {% elif hvac_decision == 'cool' %}
+      {{ r[0].rule != 'heat_only' }}
     {% else %}
-      false
+      true
     {% endif %}
 
   room3_damper_open: >
@@ -867,15 +865,14 @@ variables:
       false
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
-    {% elif r[0].rule == 'heat_only' %}
-      {{ hvac_decision == 'heat' and r[0].needs_heat }}
-    {% elif r[0].rule == 'cool_only' %}
-      {{ hvac_decision == 'cool' and r[0].needs_cool }}
-    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
-      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
-         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% elif hvac_decision == 'comfortable' %}
+      true
+    {% elif hvac_decision == 'heat' %}
+      {{ r[0].rule != 'cool_only' }}
+    {% elif hvac_decision == 'cool' %}
+      {{ r[0].rule != 'heat_only' }}
     {% else %}
-      false
+      true
     {% endif %}
 
   room4_damper_open: >
@@ -884,15 +881,14 @@ variables:
       false
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
-    {% elif r[0].rule == 'heat_only' %}
-      {{ hvac_decision == 'heat' and r[0].needs_heat }}
-    {% elif r[0].rule == 'cool_only' %}
-      {{ hvac_decision == 'cool' and r[0].needs_cool }}
-    {% elif r[0].rule in ['heat_and_cool', 'hold_range'] %}
-      {{ (hvac_decision == 'heat' and r[0].needs_heat) or
-         (hvac_decision == 'cool' and r[0].needs_cool) }}
+    {% elif hvac_decision == 'comfortable' %}
+      true
+    {% elif hvac_decision == 'heat' %}
+      {{ r[0].rule != 'cool_only' }}
+    {% elif hvac_decision == 'cool' %}
+      {{ r[0].rule != 'heat_only' }}
     {% else %}
-      false
+      true
     {% endif %}
 
 ###########################################################################
