@@ -836,14 +836,10 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {# Close cool_only rooms only if already above their max — hot air will make them worse #}
-      {% if r[0].rule == 'cool_only' %}
-        {{ r[0].temp <= r[0].eff_max }}
-      {% else %}
-        true
-      {% endif %}
+      {# cool_only rooms never want heat — always close #}
+      {{ r[0].rule != 'cool_only' }}
     {% elif hvac_decision == 'cool' %}
-      {# Close any room already below its min — cool air will push it further out of range #}
+      {# Close any room already below its min — more cool air would make it worse #}
       {{ r[0].temp >= r[0].eff_min }}
     {% else %}
       true
@@ -858,11 +854,7 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {% if r[0].rule == 'cool_only' %}
-        {{ r[0].temp <= r[0].eff_max }}
-      {% else %}
-        true
-      {% endif %}
+      {{ r[0].rule != 'cool_only' }}
     {% elif hvac_decision == 'cool' %}
       {{ r[0].temp >= r[0].eff_min }}
     {% else %}
@@ -878,11 +870,7 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {% if r[0].rule == 'cool_only' %}
-        {{ r[0].temp <= r[0].eff_max }}
-      {% else %}
-        true
-      {% endif %}
+      {{ r[0].rule != 'cool_only' }}
     {% elif hvac_decision == 'cool' %}
       {{ r[0].temp >= r[0].eff_min }}
     {% else %}
@@ -898,11 +886,7 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {% if r[0].rule == 'cool_only' %}
-        {{ r[0].temp <= r[0].eff_max }}
-      {% else %}
-        true
-      {% endif %}
+      {{ r[0].rule != 'cool_only' }}
     {% elif hvac_decision == 'cool' %}
       {{ r[0].temp >= r[0].eff_min }}
     {% else %}
