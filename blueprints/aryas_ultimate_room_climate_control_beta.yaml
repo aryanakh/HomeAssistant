@@ -933,6 +933,15 @@ trigger:
     to: "off"
     id: enable_off
 
+  - platform: state
+    entity_id: !input enable_automation
+    to: "on"
+    id: enable_on
+
+  - platform: state
+    entity_id: !input mode_entity
+    id: mode_change
+
 ###########################################################################
 # CONDITIONS — safety checks before running
 ###########################################################################
@@ -943,6 +952,8 @@ condition:
     conditions:
       - condition: trigger
         id: enable_off
+      - condition: trigger
+        id: enable_on
       - condition: state
         entity_id: !input enable_automation
         state: "on"
