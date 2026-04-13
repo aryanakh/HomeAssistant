@@ -956,10 +956,15 @@ condition:
         entity_id: !input enable_automation
         state: "on"
 
-  # Thermostat must be reachable
-  - condition: template
-    value_template: >
-      {{ states(thermostat) not in ['off', 'unavailable', 'unknown'] }}
+  # Thermostat must be reachable (enable_on is exempt — it may need to
+  # re-engage a thermostat that was left in permissive mode while away)
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: enable_on
+      - condition: template
+        value_template: >
+          {{ states(thermostat) not in ['off', 'unavailable', 'unknown'] }}
 
 ###########################################################################
 # ACTIONS — main control logic
@@ -968,19 +973,32 @@ action:
   - choose:
 
       #######################################################################
-      # CASE 1 — Automation disabled → turn thermostat OFF (once)
+      # CASE 1 — Automation disabled → set permissive away-temp band
+      # Thermostat stays ON but uses the away min/max as a wide safety net.
+      # This also ensures the thermostat is not 'off' when enable_on fires.
       #######################################################################
       - conditions:
           - condition: trigger
             id: "enable_off"
         sequence:
-          - service: climate.turn_off
+          - service: climate.set_hvac_mode
             target:
               entity_id: !input thermostat
+            data:
+              hvac_mode: heat_cool
+
+          - service: climate.set_temperature
+            target:
+              entity_id: !input thermostat
+            data:
+              target_temp_low: "{{ away_min }}"
+              target_temp_high: "{{ away_max }}"
 
           - service: system_log.write
             data:
-              message: "Climate control disabled → thermostat turned OFF"
+              message: >
+                Climate control disabled → thermostat set to permissive band
+                {{ away_min }}–{{ away_max }}°F (away temps). Will re-engage on enable.
               level: warning
 
       #######################################################################
