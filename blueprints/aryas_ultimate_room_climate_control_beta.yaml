@@ -856,7 +856,7 @@ variables:
   room1_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 1) | list %}
     {% if r | length == 0 %}
-      false
+      true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif hvac_decision == 'comfortable' %}
@@ -872,7 +872,7 @@ variables:
   room2_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 2) | list %}
     {% if r | length == 0 %}
-      false
+      true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif hvac_decision == 'comfortable' %}
@@ -888,7 +888,7 @@ variables:
   room3_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 3) | list %}
     {% if r | length == 0 %}
-      false
+      true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif hvac_decision == 'comfortable' %}
@@ -904,7 +904,7 @@ variables:
   room4_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 4) | list %}
     {% if r | length == 0 %}
-      false
+      true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif hvac_decision == 'comfortable' %}
