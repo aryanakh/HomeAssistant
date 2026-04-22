@@ -798,12 +798,15 @@ variables:
   # Level 10: per-damper open/close decision (pre-computed for action section)
   #
   # Waterfall logic:
-  #   comfortable (all rooms in range): ALL dampers open — prevent back-pressure
-  #   heat mode:  open only rooms that actually need heating (temp < min, rule allows heat)
-  #   cool mode:  open only rooms that actually need cooling (temp > max, rule allows cool)
-  #   Once a room reaches its range its damper closes; HVAC keeps running for others.
-  #   do_nothing rooms: always follow do_nothing_default, never drive HVAC decision.
-  #   Inactive / unavailable rooms: closed.
+  #   inactive / no sensor: open (don't restrict flow for unmanaged rooms)
+  #   do_nothing: follow do_nothing_default
+  #   comfortable: all open — prevent HVAC back-pressure
+  #   heat mode:
+  #     cool_only rooms → always closed (never want heat)
+  #     others → open if temp <= eff_max (close only if already overheated)
+  #   cool mode:
+  #     heat_only rooms → always closed (never want cool)
+  #     others → open if temp >= eff_min (close only if already too cold)
   # -------------------------------------------------------------------------
   room1_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 1) | list %}
@@ -814,9 +817,9 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].needs_heat }}
+      {{ r[0].rule != 'cool_only' and r[0].temp <= r[0].eff_max }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].needs_cool }}
+      {{ r[0].rule != 'heat_only' and r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
@@ -830,9 +833,9 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].needs_heat }}
+      {{ r[0].rule != 'cool_only' and r[0].temp <= r[0].eff_max }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].needs_cool }}
+      {{ r[0].rule != 'heat_only' and r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
@@ -846,9 +849,9 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].needs_heat }}
+      {{ r[0].rule != 'cool_only' and r[0].temp <= r[0].eff_max }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].needs_cool }}
+      {{ r[0].rule != 'heat_only' and r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
@@ -862,9 +865,9 @@ variables:
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].needs_heat }}
+      {{ r[0].rule != 'cool_only' and r[0].temp <= r[0].eff_max }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].needs_cool }}
+      {{ r[0].rule != 'heat_only' and r[0].temp >= r[0].eff_min }}
     {% else %}
       true
     {% endif %}
