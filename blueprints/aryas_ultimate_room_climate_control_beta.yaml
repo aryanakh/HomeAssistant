@@ -91,38 +91,12 @@ blueprint:
               value: "/60"
       default: "/10"
 
-    enable_automation:
-      name: Enable Climate Control
-      description: Toggle to enable or disable this automation. If "On", automation runs. If "Off", thermostat turns off.
+    occupied_boolean:
+      name: Occupied Mode
+      description: When ON, automation runs normally. When OFF, all dampers open and thermostat is set to eco temperatures.
       selector:
         entity:
           domain: input_boolean
-
-    # -------------------------------------------------------------------------
-    # MODE SELECTOR (optional) — Away and Night mode via input_select
-    # -------------------------------------------------------------------------
-
-    mode_entity:
-      name: Mode Selector (optional)
-      description: input_select entity whose state drives Away/Night mode. Leave blank to disable.
-      default: {}
-      selector:
-        entity:
-          domain: input_select
-
-    away_mode_value:
-      name: Away Mode State Value
-      description: The input_select state that activates Away mode (e.g. "Away")
-      default: "Away"
-      selector:
-        text: {}
-
-    night_mode_value:
-      name: Night Mode State Value
-      description: The input_select state that activates Night mode (e.g. "Night")
-      default: "Night"
-      selector:
-        text: {}
 
     night_start_time:
       name: Night Start Time
@@ -138,9 +112,9 @@ blueprint:
       selector:
         time: {}
 
-    away_min_temp:
-      name: Away Mode - Min Temperature (°F)
-      description: Temperature floor enforced for all rooms when Away mode is active
+    eco_min_temp:
+      name: Eco Mode - Min Temperature (°F)
+      description: Thermostat floor when unoccupied. System will heat if it drops below this.
       default: 60
       selector:
         number:
@@ -148,14 +122,14 @@ blueprint:
           max: 75
           step: 0.5
 
-    away_max_temp:
-      name: Away Mode - Max Temperature (°F)
-      description: Temperature ceiling enforced for all rooms when Away mode is active
-      default: 75
+    eco_max_temp:
+      name: Eco Mode - Max Temperature (°F)
+      description: Thermostat ceiling when unoccupied. System will cool if it rises above this.
+      default: 78
       selector:
         number:
           min: 55
-          max: 85
+          max: 90
           step: 0.5
 
     min_setpoint:
@@ -575,15 +549,12 @@ variables:
   # -------------------------------------------------------------------------
   thermostat: !input thermostat
   buffer: !input neutral_buffer
-  enable_toggle: !input enable_automation
+  occupied: !input occupied_boolean
   do_nothing_default: !input do_nothing_default_state
-  mode_entity: !input mode_entity
-  away_mode_val: !input away_mode_value
-  night_mode_val: !input night_mode_value
   night_start: !input night_start_time
   night_end: !input night_end_time
-  away_min: !input away_min_temp
-  away_max: !input away_max_temp
+  eco_min: !input eco_min_temp
+  eco_max: !input eco_max_temp
   min_sp: !input min_setpoint
   max_sp: !input max_setpoint
   setpoint_step: !input setpoint_step
@@ -637,34 +608,16 @@ variables:
   r4_schedule: !input room4_schedule
 
   # -------------------------------------------------------------------------
-  # Level 2.5: Mode resolution — resolved before rooms loop needs them
+  # Level 2.5: Night mode — time-based only (overnight wrap supported)
   # -------------------------------------------------------------------------
-  mode_entity_active: >
-    {{ mode_entity is string and mode_entity != '' }}
-
-  current_mode: >
-    {% if mode_entity is string and mode_entity != '' %}
-      {{ states(mode_entity) }}
-    {% else %}
-      normal
-    {% endif %}
-
-  is_away_mode: >
-    {{ mode_entity is string and mode_entity != ''
-       and states(mode_entity) == away_mode_val }}
-
   is_night_mode: >
-    {% set mode_night = mode_entity is string and mode_entity != ''
-       and states(mode_entity) == night_mode_val %}
     {% set now_min = now().hour * 60 + now().minute %}
     {% set start_min = night_start.split(':')[0] | int * 60 + night_start.split(':')[1] | int %}
     {% set end_min = night_end.split(':')[0] | int * 60 + night_end.split(':')[1] | int %}
     {% if start_min > end_min %}
-      {# Overnight span — wraps past midnight (e.g. 21:00 to 08:00) #}
-      {{ mode_night or (now_min >= start_min or now_min < end_min) }}
+      {{ now_min >= start_min or now_min < end_min }}
     {% else %}
-      {# Same-day span #}
-      {{ mode_night or (now_min >= start_min and now_min < end_min) }}
+      {{ now_min >= start_min and now_min < end_min }}
     {% endif %}
 
   # -------------------------------------------------------------------------
@@ -675,7 +628,6 @@ variables:
   #   night_only → included only when Night mode is active (ignores enabled toggle)
   #   day_only  → included only when Night mode is NOT active (ignores enabled toggle)
   #
-  # Away mode: substitutes global away_min/away_max for per-room bounds.
   # Room rules (heat_only, cool_only, etc.) are still respected.
   # -------------------------------------------------------------------------
   rooms: >
@@ -700,8 +652,8 @@ variables:
           (r.schedule == 'night_only' and is_night_mode) or
           (r.schedule == 'day_only' and not is_night_mode) %}
       {% if schedule_active and is_number(states(r.sensor)) %}
-        {% set eff_min = away_min if is_away_mode else r.min %}
-        {% set eff_max = away_max if is_away_mode else r.max %}
+        {% set eff_min = r.min %}
+        {% set eff_max = r.max %}
         {% set temp = states(r.sensor) | float %}
         {% set target = ((eff_min + eff_max) / 2) | round(1) %}
         {% set needs_heat = (temp < eff_min) and r.rule in ['heat_only', 'heat_and_cool', 'hold_range'] %}
@@ -749,8 +701,8 @@ variables:
           (r.schedule == 'always' and r.enabled) or
           (r.schedule == 'night_only' and is_night_mode) or
           (r.schedule == 'day_only' and not is_night_mode) %}
-      {% set eff_min = away_min if is_away_mode else r.min %}
-      {% set eff_max = away_max if is_away_mode else r.max %}
+      {% set eff_min = r.min %}
+      {% set eff_max = r.max %}
       {% set temp = states(r.sensor) | float(none) if has_temp else none %}
       {% set entry = dict(r,
         has_temp=has_temp,
@@ -918,7 +870,7 @@ variables:
     {% endif %}
 
 ###########################################################################
-# TRIGGER — automation runs every X minutes or when disabled
+# TRIGGER — time poll, occupancy changes, or room overheat
 # NOTE: !input is used directly so HA validates the value at import time.
 ###########################################################################
 trigger:
@@ -927,41 +879,57 @@ trigger:
     id: time_poll
 
   - platform: state
-    entity_id: !input enable_automation
+    entity_id: !input occupied_boolean
     to: "off"
-    id: enable_off
+    id: eco_on
 
   - platform: state
-    entity_id: !input enable_automation
+    entity_id: !input occupied_boolean
     to: "on"
-    id: enable_on
+    id: occupied_on
 
-  - platform: state
-    entity_id: !input mode_entity
-    id: mode_change
+  - platform: numeric_state
+    entity_id: !input room1_sensor
+    above: !input room1_max_temp
+    id: room1_hot
+
+  - platform: numeric_state
+    entity_id: !input room2_sensor
+    above: !input room2_max_temp
+    id: room2_hot
+
+  - platform: numeric_state
+    entity_id: !input room3_sensor
+    above: !input room3_max_temp
+    id: room3_hot
+
+  - platform: numeric_state
+    entity_id: !input room4_sensor
+    above: !input room4_max_temp
+    id: room4_hot
 
 ###########################################################################
 # CONDITIONS — safety checks before running
 ###########################################################################
 condition:
-  # Master enable/disable toggle — must be on for normal logic
-  # (enable_off trigger bypasses this via the action choose below)
+  # Occupied boolean must be on, unless this is the eco_on trigger itself
   - condition: or
     conditions:
       - condition: trigger
-        id: enable_off
+        id: eco_on
       - condition: trigger
-        id: enable_on
+        id: occupied_on
       - condition: state
-        entity_id: !input enable_automation
+        entity_id: !input occupied_boolean
         state: "on"
 
-  # Thermostat must be reachable (enable_on is exempt — it may need to
-  # re-engage a thermostat that was left in permissive mode while away)
+  # Thermostat must be reachable (occupied_on exempt — thermostat may be in eco band)
   - condition: or
     conditions:
       - condition: trigger
-        id: enable_on
+        id: occupied_on
+      - condition: trigger
+        id: eco_on
       - condition: template
         value_template: >
           {{ states(thermostat) not in ['off', 'unavailable', 'unknown'] }}
@@ -973,14 +941,22 @@ action:
   - choose:
 
       #######################################################################
-      # CASE 1 — Automation disabled → set permissive away-temp band
-      # Thermostat stays ON but uses the away min/max as a wide safety net.
-      # This also ensures the thermostat is not 'off' when enable_on fires.
+      # CASE 1 — Eco mode (unoccupied) → open all dampers + wide eco band
+      # All dampers open so HVAC can circulate freely at minimal load.
+      # Thermostat set to eco min/max — only runs at temperature extremes.
       #######################################################################
       - conditions:
           - condition: trigger
-            id: "enable_off"
+            id: "eco_on"
         sequence:
+          - service: switch.turn_off
+            target:
+              entity_id:
+                - !input room1_damper
+                - !input room2_damper
+                - !input room3_damper
+                - !input room4_damper
+
           - service: climate.set_hvac_mode
             target:
               entity_id: !input thermostat
@@ -991,14 +967,14 @@ action:
             target:
               entity_id: !input thermostat
             data:
-              target_temp_low: "{{ away_min }}"
-              target_temp_high: "{{ away_max }}"
+              target_temp_low: "{{ eco_min }}"
+              target_temp_high: "{{ eco_max }}"
 
           - service: system_log.write
             data:
               message: >
-                Climate control disabled → thermostat set to permissive band
-                {{ away_min }}–{{ away_max }}°F (away temps). Will re-engage on enable.
+                Eco mode active → all dampers opened, thermostat set to
+                {{ eco_min }}–{{ eco_max }}°F. Will re-engage when occupied.
               level: warning
 
       #######################################################################
@@ -1006,7 +982,7 @@ action:
       #######################################################################
       - conditions:
           - condition: state
-            entity_id: !input enable_automation
+            entity_id: !input occupied_boolean
             state: "on"
         sequence:
 
@@ -1022,10 +998,9 @@ action:
           - service: system_log.write
             data:
               message: >
-                {% set mode_label = current_mode if mode_entity_active else 'Normal' %}
                 {% set winner_label = 'Room ' ~ winning_room.id ~ ' (' ~ winning_room.name ~ ')'
                    if winning_room != 'none' and winning_room is mapping else 'none' %}
-                [v0.2.0b] {{ now().strftime('%H:%M') }} | Mode: {{ mode_label }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
+                [v0.3.0b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
                 {% for r in all_rooms_debug %}
                   {% set active_room = rooms | selectattr('id', 'eq', r.id) | list %}
                   {% set tag = r.rule %}
@@ -1040,13 +1015,12 @@ action:
                     {% set damper_lbl = 'damper CLOSED' %}
                   {% else %}
                     {% set ar = active_room[0] %}
-                    {% set away_tag = ' [away]' if is_away_mode else '' %}
                     {% if ar.needs_heat %}
-                      {% set status = ar.temp | string ~ '°F | too cold <' ~ ar.eff_min ~ '°F' ~ away_tag ~ ' → HEAT' %}
+                      {% set status = ar.temp | string ~ '°F | too cold <' ~ ar.eff_min ~ '°F → HEAT' %}
                     {% elif ar.needs_cool %}
-                      {% set status = ar.temp | string ~ '°F | too warm >' ~ ar.eff_max ~ '°F' ~ away_tag ~ ' → COOL' %}
+                      {% set status = ar.temp | string ~ '°F | too warm >' ~ ar.eff_max ~ '°F → COOL' %}
                     {% else %}
-                      {% set status = ar.temp | string ~ '°F | comfortable (' ~ ar.eff_min ~ '–' ~ ar.eff_max ~ '°F)' ~ away_tag %}
+                      {% set status = ar.temp | string ~ '°F | comfortable (' ~ ar.eff_min ~ '–' ~ ar.eff_max ~ '°F)' %}
                     {% endif %}
                     {% if r.id == 1 %}{% set d_open = room1_damper_open %}
                     {% elif r.id == 2 %}{% set d_open = room2_damper_open %}
