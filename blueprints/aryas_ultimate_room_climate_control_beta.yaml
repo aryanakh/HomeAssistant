@@ -1,38 +1,46 @@
 blueprint:
-  name: AryaNakh's Ultimate Room Climate Control - (v0.2.0b)
+  name: AryaNakh's Ultimate Room Climate Control - (v0.3.0b)
   author: AryaNakh
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # AryaNakh's Ultimate Room Climate Control (v0.2.0b)
+    # AryaNakh's Ultimate Room Climate Control (v0.3.0b)
 
-    Take control of your HVAC system at home with 4-room zone control and relay-board damper support.
+    4-room zone control for relay-board HVAC dampers. The thermostat sits in a
+    hallway — this blueprint drives it from per-room temperature sensors instead.
 
-    # Current Features
-      - Actively corrects when a room is outside its desired range
-      - Priority-based conflict resolution when rooms disagree on heat vs cool
-      - Per-room damper control via relay board (up to 4 rooms, up to 2 dampers per room)
+    # Features
+      - Occupied / Eco mode via a single boolean toggle
+        - Occupied ON: automation runs every X minutes (and immediately on toggle)
+        - Occupied OFF: all dampers open, thermostat holds a wide eco band
+      - Per-room overheat detection — re-triggers immediately if any room exceeds its max
+      - Priority-based conflict resolution (lower number wins; ties go to heat)
       - 5 room rules: heat_only, cool_only, heat_and_cool, hold_range, do_nothing
-      - Widens the comfort band when all rooms are stable
+      - Up to 2 dampers per room (normally-open relay board: OFF = open, ON = closed)
+      - Configurable night window (default 9 pm – 8 am) for night_only / day_only schedules
+      - Deadband checks avoid unnecessary thermostat commands
+      - Verbose per-cycle log for easy debugging
 
-      - Avoids excessive thermostat updates with deadband checks
-      - Allows custom polling intervals
-
-    # Beta Features
-      - Boolean toggle to disable blueprint
-      - Configurable timing adjustments
-      - Per-room enable/disable toggle
+    # Damper Waterfall Logic
+      When HVAC is heating:
+        - cool_only rooms always close (they never want heat)
+        - All other active rooms open unless already above their max temp
+      When HVAC is cooling:
+        - heat_only rooms always close (they never want cool)
+        - All other active rooms open unless already below their min temp
+      When all rooms are comfortable: every damper opens (prevents back-pressure)
+      Inactive / schedule-off rooms: damper stays open (no unnecessary restriction)
 
     # Room Rules
-      - heat_only: Room can only request heating. Damper closes when HVAC is cooling.
-      - cool_only: Room can only request cooling. Damper closes when HVAC is heating.
-      - heat_and_cool: Room participates in both heating and cooling requests.
-      - hold_range: Same as heat_and_cool but signals strict range intent.
-      - do_nothing: Room never votes; damper follows the global do_nothing default.
+      - heat_only:     Only requests heating. Closes when HVAC cools.
+      - cool_only:     Only requests cooling. Closes when HVAC heats.
+      - heat_and_cool: Participates in both heating and cooling requests.
+      - hold_range:    Same as heat_and_cool with strict range intent.
+      - do_nothing:    Never votes; damper follows the global do_nothing default.
 
     # Conflict Resolution
-      When one room needs heat and another needs cool, the room with the lower
-      priority number wins. Ties default to heat (safer for occupants).
+      When one room needs heat and another needs cool, the lower priority number wins.
+      Ties default to heat (safer for occupants).
       Do NOT assign the same priority number to rooms with likely conflicting needs.
 
   domain: automation
