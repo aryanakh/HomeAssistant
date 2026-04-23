@@ -240,11 +240,19 @@ blueprint:
           step: 0.5
 
     room1_enabled:
-      name: Room 1 - Enable this room
-      description: Toggle to include or exclude this room from control logic
+      name: Room 1 - Enable this room (static)
+      description: Static toggle. Ignored if a boolean helper entity is configured below.
       default: true
       selector:
         boolean: {}
+
+    room1_enabled_entity:
+      name: Room 1 - Enable/Disable Helper Entity (optional)
+      description: input_boolean that controls this room at runtime. When set, overrides the static toggle above.
+      default: {}
+      selector:
+        entity:
+          domain: input_boolean
 
     room1_name:
       name: Room 1 - Display Name
@@ -334,11 +342,19 @@ blueprint:
           step: 0.5
 
     room2_enabled:
-      name: Room 2 - Enable this room
-      description: Toggle to include or exclude this room from control logic
+      name: Room 2 - Enable this room (static)
+      description: Static toggle. Ignored if a boolean helper entity is configured below.
       default: true
       selector:
         boolean: {}
+
+    room2_enabled_entity:
+      name: Room 2 - Enable/Disable Helper Entity (optional)
+      description: input_boolean that controls this room at runtime. When set, overrides the static toggle above.
+      default: {}
+      selector:
+        entity:
+          domain: input_boolean
 
     room2_name:
       name: Room 2 - Display Name
@@ -428,11 +444,19 @@ blueprint:
           step: 0.5
 
     room3_enabled:
-      name: Room 3 - Enable this room
-      description: Toggle to include or exclude this room from control logic
+      name: Room 3 - Enable this room (static)
+      description: Static toggle. Ignored if a boolean helper entity is configured below.
       default: true
       selector:
         boolean: {}
+
+    room3_enabled_entity:
+      name: Room 3 - Enable/Disable Helper Entity (optional)
+      description: input_boolean that controls this room at runtime. When set, overrides the static toggle above.
+      default: {}
+      selector:
+        entity:
+          domain: input_boolean
 
     room3_name:
       name: Room 3 - Display Name
@@ -522,11 +546,19 @@ blueprint:
           step: 0.5
 
     room4_enabled:
-      name: Room 4 - Enable this room
-      description: Toggle to include or exclude this room from control logic
+      name: Room 4 - Enable this room (static)
+      description: Static toggle. Ignored if a boolean helper entity is configured below.
       default: false
       selector:
         boolean: {}
+
+    room4_enabled_entity:
+      name: Room 4 - Enable/Disable Helper Entity (optional)
+      description: input_boolean that controls this room at runtime. When set, overrides the static toggle above.
+      default: {}
+      selector:
+        entity:
+          domain: input_boolean
 
     room4_name:
       name: Room 4 - Display Name
@@ -579,6 +611,7 @@ variables:
   r1_min: !input room1_min_temp
   r1_max: !input room1_max_temp
   r1_enabled: !input room1_enabled
+  r1_enabled_entity: !input room1_enabled_entity
   r1_name: !input room1_name
   r1_schedule: !input room1_schedule
 
@@ -590,6 +623,7 @@ variables:
   r2_min: !input room2_min_temp
   r2_max: !input room2_max_temp
   r2_enabled: !input room2_enabled
+  r2_enabled_entity: !input room2_enabled_entity
   r2_name: !input room2_name
   r2_schedule: !input room2_schedule
 
@@ -601,6 +635,7 @@ variables:
   r3_min: !input room3_min_temp
   r3_max: !input room3_max_temp
   r3_enabled: !input room3_enabled
+  r3_enabled_entity: !input room3_enabled_entity
   r3_name: !input room3_name
   r3_schedule: !input room3_schedule
 
@@ -612,11 +647,44 @@ variables:
   r4_min: !input room4_min_temp
   r4_max: !input room4_max_temp
   r4_enabled: !input room4_enabled
+  r4_enabled_entity: !input room4_enabled_entity
   r4_name: !input room4_name
   r4_schedule: !input room4_schedule
 
   # -------------------------------------------------------------------------
-  # Level 2.5: Night mode — time-based only (overnight wrap supported)
+  # Level 2.5a: Effective enabled state per room
+  # If a boolean helper entity is configured, it overrides the static toggle.
+  # -------------------------------------------------------------------------
+  r1_enabled_eff: >
+    {% if r1_enabled_entity is string and r1_enabled_entity != '' %}
+      {{ states(r1_enabled_entity) == 'on' }}
+    {% else %}
+      {{ r1_enabled }}
+    {% endif %}
+
+  r2_enabled_eff: >
+    {% if r2_enabled_entity is string and r2_enabled_entity != '' %}
+      {{ states(r2_enabled_entity) == 'on' }}
+    {% else %}
+      {{ r2_enabled }}
+    {% endif %}
+
+  r3_enabled_eff: >
+    {% if r3_enabled_entity is string and r3_enabled_entity != '' %}
+      {{ states(r3_enabled_entity) == 'on' }}
+    {% else %}
+      {{ r3_enabled }}
+    {% endif %}
+
+  r4_enabled_eff: >
+    {% if r4_enabled_entity is string and r4_enabled_entity != '' %}
+      {{ states(r4_enabled_entity) == 'on' }}
+    {% else %}
+      {{ r4_enabled }}
+    {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Level 2.5b: Night mode — time-based only (overnight wrap supported)
   # -------------------------------------------------------------------------
   is_night_mode: >
     {% set now_min = now().hour * 60 + now().minute %}
@@ -643,16 +711,16 @@ variables:
     {% set room_defs = [
       {'id': 1, 'name': r1_name, 'sensor': r1_sensor, 'damper': r1_damper,
        'rule': r1_rule, 'priority': r1_priority, 'min': r1_min, 'max': r1_max,
-       'enabled': r1_enabled, 'schedule': r1_schedule},
+       'enabled': r1_enabled_eff, 'schedule': r1_schedule},
       {'id': 2, 'name': r2_name, 'sensor': r2_sensor, 'damper': r2_damper,
        'rule': r2_rule, 'priority': r2_priority, 'min': r2_min, 'max': r2_max,
-       'enabled': r2_enabled, 'schedule': r2_schedule},
+       'enabled': r2_enabled_eff, 'schedule': r2_schedule},
       {'id': 3, 'name': r3_name, 'sensor': r3_sensor, 'damper': r3_damper,
        'rule': r3_rule, 'priority': r3_priority, 'min': r3_min, 'max': r3_max,
-       'enabled': r3_enabled, 'schedule': r3_schedule},
+       'enabled': r3_enabled_eff, 'schedule': r3_schedule},
       {'id': 4, 'name': r4_name, 'sensor': r4_sensor, 'damper': r4_damper,
        'rule': r4_rule, 'priority': r4_priority, 'min': r4_min, 'max': r4_max,
-       'enabled': r4_enabled, 'schedule': r4_schedule}
+       'enabled': r4_enabled_eff, 'schedule': r4_schedule}
     ] %}
     {% for r in room_defs %}
       {% set schedule_active =
@@ -692,16 +760,16 @@ variables:
     {% set room_defs = [
       {'id': 1, 'name': r1_name, 'sensor': r1_sensor, 'rule': r1_rule,
        'priority': r1_priority, 'min': r1_min, 'max': r1_max,
-       'enabled': r1_enabled, 'schedule': r1_schedule},
+       'enabled': r1_enabled_eff, 'schedule': r1_schedule},
       {'id': 2, 'name': r2_name, 'sensor': r2_sensor, 'rule': r2_rule,
        'priority': r2_priority, 'min': r2_min, 'max': r2_max,
-       'enabled': r2_enabled, 'schedule': r2_schedule},
+       'enabled': r2_enabled_eff, 'schedule': r2_schedule},
       {'id': 3, 'name': r3_name, 'sensor': r3_sensor, 'rule': r3_rule,
        'priority': r3_priority, 'min': r3_min, 'max': r3_max,
-       'enabled': r3_enabled, 'schedule': r3_schedule},
+       'enabled': r3_enabled_eff, 'schedule': r3_schedule},
       {'id': 4, 'name': r4_name, 'sensor': r4_sensor, 'rule': r4_rule,
        'priority': r4_priority, 'min': r4_min, 'max': r4_max,
-       'enabled': r4_enabled, 'schedule': r4_schedule}
+       'enabled': r4_enabled_eff, 'schedule': r4_schedule}
     ] %}
     {% for r in room_defs %}
       {% set has_temp = is_number(states(r.sensor)) %}
