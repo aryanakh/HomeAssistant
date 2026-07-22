@@ -1,10 +1,10 @@
 blueprint:
-  name: AryaNakh's Ultimate Room Climate Control - (v0.3.2b)
+  name: AryaNakh's Ultimate Room Climate Control - (v0.3.3b)
   author: AryaNakh
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # AryaNakh's Ultimate Room Climate Control (v0.3.2b)
+    # AryaNakh's Ultimate Room Climate Control (v0.3.3b)
 
     4-room zone control for relay-board HVAC dampers. The thermostat sits in a
     hallway — this blueprint drives it from per-room temperature sensors instead.
@@ -19,6 +19,9 @@ blueprint:
       - Up to 2 dampers per room (normally-open relay board: OFF = open, ON = closed)
       - Configurable night window (default 9 pm – 8 am) for night_only / day_only schedules
       - Deadband checks avoid unnecessary thermostat commands
+      - Adaptive comfortable-mode band: centers the neutral heat_cool band on the
+        thermostat's own current reading so an offset (e.g. hallway) thermostat
+        sensor never trips heating/cooling while all rooms are comfortable
       - Verbose per-cycle log for easy debugging
 
     # Damper Waterfall Logic
@@ -874,10 +877,23 @@ variables:
     {% endif %}
 
   # -------------------------------------------------------------------------
-  # Level 9: neutral band for comfortable state
+  # Level 8.5: live thermostat sensor reading (drives adaptive banding)
   # -------------------------------------------------------------------------
-  neutral_low: "{{ (comfort_midpoint - buffer) | round(1) }}"
-  neutral_high: "{{ (comfort_midpoint + buffer) | round(1) }}"
+  therm_current: "{{ state_attr(thermostat, 'current_temperature') | float(none) }}"
+
+  # -------------------------------------------------------------------------
+  # Level 9: neutral band for comfortable state — ADAPTIVE
+  #
+  # The thermostat's own sensor may sit in a hallway that runs warmer or
+  # cooler than the managed rooms. When every room is comfortable we do NOT
+  # want the thermostat's internal heat_cool logic to run off that sensor, so
+  # we center the neutral band on the thermostat's *current reading* (± buffer).
+  # Whatever the hallway reads, the band brackets it and neither heating nor
+  # cooling is called. Falls back to the room comfort midpoint if the
+  # thermostat can't report a current temperature.
+  # -------------------------------------------------------------------------
+  neutral_low: "{{ ((therm_current if therm_current is not none else comfort_midpoint) - buffer) | round(1) }}"
+  neutral_high: "{{ ((therm_current if therm_current is not none else comfort_midpoint) + buffer) | round(1) }}"
 
   # -------------------------------------------------------------------------
   # Level 10: per-damper open/close decision (pre-computed for action section)
@@ -1124,7 +1140,7 @@ action:
               message: >
                 {% set winner_label = 'Room ' ~ winning_room.id ~ ' (' ~ winning_room.name ~ ')'
                    if winning_room != 'none' and winning_room is mapping else 'none' %}
-                [v0.3.2b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
+                [v0.3.3b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
                 {% for r in all_rooms_debug %}
                   {% set active_room = rooms | selectattr('id', 'eq', r.id) | list %}
                   {% set tag = r.rule %}
@@ -1155,7 +1171,7 @@ action:
                   {% set arrow = ' ← WINNER' if winning_room != 'none' and winning_room is mapping and winning_room.id == r.id else '' %}
                   Room {{ r.id }} ({{ r.name }}) [{{ tag }}] {{ status }} | {{ damper_lbl }}{{ arrow }}
                 {% endfor %}
-                {% if hvac_decision == 'comfortable' %}Thermostat → heat_cool band {{ neutral_low }}–{{ neutral_high }}°F
+                {% if hvac_decision == 'comfortable' %}Thermostat → adaptive heat_cool band {{ neutral_low }}–{{ neutral_high }}°F (centered on thermostat reading {{ therm_current }}°F)
                 {% else %}Thermostat → {{ hvac_decision }} mode, setpoint = thermostat_temp {{ '+' if hvac_decision == 'heat' else '-' }} {{ setpoint_step }}°F (clamped {{ min_sp }}–{{ max_sp }}°F){% endif %}
               level: info
 
@@ -1305,10 +1321,14 @@ action:
               # Active mode: thermostat setpoint doesn't match what we'd set
               - "{{ hvac_decision in ['heat', 'cool'] and
                     (current_setpoint is none or (winning_setpoint - current_setpoint) | abs > 0.7) }}"
-              # Comfortable mode: thermostat band doesn't match our neutral band
+              # Comfortable mode: only (re)write the adaptive band when it's
+              # unset, when the thermostat isn't in a heat_cool band yet, or when
+              # its own sensor has drifted within 0.5°F of an edge (about to call
+              # heat or cool). Otherwise leave the existing wide band in place so
+              # an offset hallway sensor never trips heating/cooling on its own.
               - "{{ hvac_decision == 'comfortable' and
-                    (current_low is none or current_high is none or
-                     current_low != neutral_low or current_high != neutral_high) }}"
+                    (current_low is none or current_high is none or therm_current is none or
+                     therm_current <= current_low + 0.5 or therm_current >= current_high - 0.5) }}"
 
           # ----------------------------------------------------------------
           # STEP 5 — HVAC mode + setpoint (3 branches)
