@@ -1,10 +1,10 @@
 blueprint:
-  name: AryaNakh's Ultimate Room Climate Control - (v0.3.1b)
+  name: AryaNakh's Ultimate Room Climate Control - (v0.3.2b)
   author: AryaNakh
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # AryaNakh's Ultimate Room Climate Control (v0.3.1b)
+    # AryaNakh's Ultimate Room Climate Control (v0.3.2b)
 
     4-room zone control for relay-board HVAC dampers. The thermostat sits in a
     hallway — this blueprint drives it from per-room temperature sensors instead.
@@ -42,7 +42,9 @@ blueprint:
       - heat_only:     Only requests heating. Closes when HVAC cools.
       - cool_only:     Only requests cooling. Closes when HVAC heats.
       - heat_and_cool: Participates in both heating and cooling requests.
-      - hold_range:    Same as heat_and_cool with strict range intent.
+      - hold_range:    Same as heat_and_cool with strict range intent. Its damper
+                       also closes whenever the room is already within [min, max]
+                       (even in comfortable mode) so it is never over-conditioned.
       - do_nothing:    Never votes; damper follows the global do_nothing default.
 
     # Conflict Resolution
@@ -883,6 +885,9 @@ variables:
   # Waterfall logic:
   #   inactive / no sensor: open (don't restrict flow for unmanaged rooms)
   #   do_nothing: follow do_nothing_default
+  #   hold_range AND within band: closed — strict-intent rooms are never fed
+  #     conditioned air while already inside [min, max], even in comfortable
+  #     mode. Takes precedence over the comfortable all-open rule.
   #   comfortable: all open — prevent HVAC back-pressure
   #   heat mode:
   #     cool_only rooms → always closed
@@ -902,6 +907,8 @@ variables:
       true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
+      false
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
@@ -918,6 +925,8 @@ variables:
       true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
+      false
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
@@ -934,6 +943,8 @@ variables:
       true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
+      false
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
@@ -950,6 +961,8 @@ variables:
       true
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
+    {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
+      false
     {% elif hvac_decision == 'comfortable' %}
       true
     {% elif hvac_decision == 'heat' %}
@@ -1111,7 +1124,7 @@ action:
               message: >
                 {% set winner_label = 'Room ' ~ winning_room.id ~ ' (' ~ winning_room.name ~ ')'
                    if winning_room != 'none' and winning_room is mapping else 'none' %}
-                [v0.3.1b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
+                [v0.3.2b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
                 {% for r in all_rooms_debug %}
                   {% set active_room = rooms | selectattr('id', 'eq', r.id) | list %}
                   {% set tag = r.rule %}
