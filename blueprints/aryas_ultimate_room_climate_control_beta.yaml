@@ -1,10 +1,10 @@
 blueprint:
-  name: AryaNakh's Ultimate Room Climate Control - (v0.3.3b)
+  name: AryaNakh's Ultimate Room Climate Control - (v0.3.4b)
   author: AryaNakh
   homeassistant:
     min_version: 2024.11.0
   description: |
-    # AryaNakh's Ultimate Room Climate Control (v0.3.3b)
+    # AryaNakh's Ultimate Room Climate Control (v0.3.4b)
 
     4-room zone control for relay-board HVAC dampers. The thermostat sits in a
     hallway — this blueprint drives it from per-room temperature sensors instead.
@@ -15,6 +15,8 @@ blueprint:
         - Occupied OFF: all dampers open, thermostat holds a wide eco band
       - Per-room overheat detection — re-triggers immediately if any room exceeds its max
       - Priority-based conflict resolution (lower number wins; ties go to heat)
+      - Priority-staged airflow: the top priority tier is served first; lower tiers
+        stay closed until the rooms above them reach their range
       - 5 room rules: heat_only, cool_only, heat_and_cool, hold_range, do_nothing
       - Up to 2 dampers per room (normally-open relay board: OFF = open, ON = closed)
       - Configurable night window (default 9 pm – 8 am) for night_only / day_only schedules
@@ -55,6 +57,22 @@ blueprint:
       Ties default to heat (safer for occupants).
       Do NOT assign the same priority number to rooms with likely conflicting needs.
 
+    # Priority Staging (Stage Dampers by Priority)
+      Priority also decides who gets airflow first. Only rooms in the best (lowest)
+      priority tier still requesting the current mode are opened; everyone below
+      waits until those rooms reach their range.
+
+      Rooms sharing a priority number form ONE tier and open together, so the
+      numbers let you choose the shape:
+        Nursery 1, Master 2, Server 3 → strictly sequential (Nursery, then Master,
+                                        then Server)
+        Nursery 1, Master 1, Server 3 → Nursery and Master cool together, Server
+                                        only opens once BOTH are in range
+
+      A room that is always out of range (e.g. a server room) therefore acts as the
+      relief/dump zone: it is held closed while the comfort rooms are served, and
+      takes the airflow once they are satisfied.
+
   domain: automation
 
   ###########################################################################
@@ -82,6 +100,18 @@ blueprint:
             - open
             - closed
       default: open
+
+    stage_by_priority:
+      name: Stage Dampers by Priority
+      description: >
+        When ON, only the highest-priority rooms that still need the current HVAC
+        mode get airflow. Lower-priority rooms stay closed until those rooms reach
+        their range, then the next tier opens. Rooms sharing the same priority
+        number form one tier and open together. Turn OFF to open every out-of-range
+        room at once.
+      default: true
+      selector:
+        boolean: {}
 
     neutral_buffer:
       name: Neutral Range Buffer (°F)
@@ -603,6 +633,7 @@ variables:
   buffer: !input neutral_buffer
   occupied: !input occupied_boolean
   do_nothing_default: !input do_nothing_default_state
+  stage_enabled: !input stage_by_priority
   night_start: !input night_start_time
   night_end: !input night_end_time
   eco_min: !input eco_min_temp
@@ -813,6 +844,21 @@ variables:
     {{ rooms | selectattr('needs_cool', 'eq', true) | list }}
 
   # -------------------------------------------------------------------------
+  # Level 4.5: staging tiers — the best (lowest) priority number still asking
+  # for each mode. Only rooms at that tier get airflow; lower-priority rooms
+  # wait until the tier above them reaches its range and drops out of the
+  # request list. Rooms sharing a priority number form one tier and open
+  # together. 99 when nothing is asking for that mode.
+  # -------------------------------------------------------------------------
+  heat_stage_priority: >
+    {% set p = heat_requesting | map(attribute='priority') | map('int') | list %}
+    {{ p | min if p | length > 0 else 99 }}
+
+  cool_stage_priority: >
+    {% set p = cool_requesting | map(attribute='priority') | map('int') | list %}
+    {{ p | min if p | length > 0 else 99 }}
+
+  # -------------------------------------------------------------------------
   # Level 5: winning room per mode — highest priority (lowest number) first
   # -------------------------------------------------------------------------
   winning_heat_room: >
@@ -862,6 +908,12 @@ variables:
     {% else %}
       0
     {% endif %}
+
+  # The priority tier currently receiving airflow (0 when not actively conditioning)
+  stage_now: >
+    {% if hvac_decision == 'heat' %}{{ heat_stage_priority | int }}
+    {% elif hvac_decision == 'cool' %}{{ cool_stage_priority | int }}
+    {% else %}0{% endif %}
 
   # -------------------------------------------------------------------------
   # Level 8: comfort midpoint — average of all enabled room targets
@@ -916,77 +968,91 @@ variables:
   #     others → open only while temp > eff_max (still above range). As soon as
   #              the room reaches its range [min, max], the damper closes so the
   #              room is not driven past max toward min.
+  #
+  # Staging (stage_enabled): in heat/cool mode a room additionally needs to be
+  # in the priority tier currently being served — priority <= the best (lowest)
+  # priority number still requesting that mode. Airflow therefore goes to the
+  # top tier first; a lower-priority room only opens once every higher-priority
+  # room has reached its range and dropped out of the request list.
   # -------------------------------------------------------------------------
   room1_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 1) | list %}
     {% if r | length == 0 %}
-      true
+      {{ true }}
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
-      false
+      {{ false }}
     {% elif hvac_decision == 'comfortable' %}
-      true
+      {{ true }}
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min }}
+      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min
+         and (not stage_enabled or r[0].priority | int <= heat_stage_priority | int) }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max }}
+      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max
+         and (not stage_enabled or r[0].priority | int <= cool_stage_priority | int) }}
     {% else %}
-      true
+      {{ true }}
     {% endif %}
 
   room2_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 2) | list %}
     {% if r | length == 0 %}
-      true
+      {{ true }}
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
-      false
+      {{ false }}
     {% elif hvac_decision == 'comfortable' %}
-      true
+      {{ true }}
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min }}
+      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min
+         and (not stage_enabled or r[0].priority | int <= heat_stage_priority | int) }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max }}
+      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max
+         and (not stage_enabled or r[0].priority | int <= cool_stage_priority | int) }}
     {% else %}
-      true
+      {{ true }}
     {% endif %}
 
   room3_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 3) | list %}
     {% if r | length == 0 %}
-      true
+      {{ true }}
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
-      false
+      {{ false }}
     {% elif hvac_decision == 'comfortable' %}
-      true
+      {{ true }}
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min }}
+      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min
+         and (not stage_enabled or r[0].priority | int <= heat_stage_priority | int) }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max }}
+      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max
+         and (not stage_enabled or r[0].priority | int <= cool_stage_priority | int) }}
     {% else %}
-      true
+      {{ true }}
     {% endif %}
 
   room4_damper_open: >
     {% set r = rooms | selectattr('id', 'eq', 4) | list %}
     {% if r | length == 0 %}
-      true
+      {{ true }}
     {% elif r[0].rule == 'do_nothing' %}
       {{ do_nothing_default == 'open' }}
     {% elif r[0].rule == 'hold_range' and r[0].is_comfortable %}
-      false
+      {{ false }}
     {% elif hvac_decision == 'comfortable' %}
-      true
+      {{ true }}
     {% elif hvac_decision == 'heat' %}
-      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min }}
+      {{ r[0].rule != 'cool_only' and r[0].temp < r[0].eff_min
+         and (not stage_enabled or r[0].priority | int <= heat_stage_priority | int) }}
     {% elif hvac_decision == 'cool' %}
-      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max }}
+      {{ r[0].rule != 'heat_only' and r[0].temp > r[0].eff_max
+         and (not stage_enabled or r[0].priority | int <= cool_stage_priority | int) }}
     {% else %}
-      true
+      {{ true }}
     {% endif %}
 
 ###########################################################################
@@ -1140,7 +1206,7 @@ action:
               message: >
                 {% set winner_label = 'Room ' ~ winning_room.id ~ ' (' ~ winning_room.name ~ ')'
                    if winning_room != 'none' and winning_room is mapping else 'none' %}
-                [v0.3.3b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}
+                [v0.3.4b] {{ now().strftime('%H:%M') }} | Night: {{ is_night_mode }} | Decision: {{ hvac_decision }} | Winner: {{ winner_label }}{% if stage_enabled and hvac_decision in ['heat', 'cool'] %} | Serving priority tier {{ stage_now | int }}{% endif %}
                 {% for r in all_rooms_debug %}
                   {% set active_room = rooms | selectattr('id', 'eq', r.id) | list %}
                   {% set tag = r.rule %}
@@ -1166,7 +1232,17 @@ action:
                     {% elif r.id == 2 %}{% set d_open = room2_damper_open %}
                     {% elif r.id == 3 %}{% set d_open = room3_damper_open %}
                     {% else %}{% set d_open = room4_damper_open %}{% endif %}
-                    {% set damper_lbl = 'damper OPEN' if d_open else 'damper CLOSED' %}
+                    {% set staged_out = stage_enabled and not d_open
+                       and ((hvac_decision == 'heat' and ar.needs_heat)
+                            or (hvac_decision == 'cool' and ar.needs_cool))
+                       and ar.priority | int > stage_now | int %}
+                    {% if d_open %}
+                      {% set damper_lbl = 'damper OPEN' %}
+                    {% elif staged_out %}
+                      {% set damper_lbl = 'damper CLOSED (staged — waiting on priority ' ~ stage_now | int ~ ')' %}
+                    {% else %}
+                      {% set damper_lbl = 'damper CLOSED' %}
+                    {% endif %}
                   {% endif %}
                   {% set arrow = ' ← WINNER' if winning_room != 'none' and winning_room is mapping and winning_room.id == r.id else '' %}
                   Room {{ r.id }} ({{ r.name }}) [{{ tag }}] {{ status }} | {{ damper_lbl }}{{ arrow }}
