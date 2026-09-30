@@ -15,8 +15,9 @@ blueprint:
       are skipped so a silent sensor never drives the HVAC
     - Outdoor temperature awareness: suppresses wasteful mode switching when
       it is very hot or cold outside (configurable override threshold)
-    - Away mode: any helper / person / device_tracker entity; HVAC turns off
-      and all dampers open until someone returns
+    - Away mode: any input_select / helper / person / device_tracker entity;
+      configurable away states (e.g. "Away") turn HVAC off and open all dampers.
+      Any other state (Home, Bypass, …) runs normal control
     - Per-room cool-disable helper: lets an external boolean (e.g. geofence,
       schedule) prevent a room from receiving cooling
     - Mode-switch hysteresis: ties always favour the current HVAC mode to
@@ -47,13 +48,24 @@ blueprint:
           domain: climate
 
     away_entity:
-      name: Away Mode Entity (optional)
+      name: Away / Home Mode Entity (optional)
       description: >
-        input_boolean, person, or device_tracker. When the state is off / away /
-        not_home the HVAC turns off and all dampers open. Leave blank to disable.
+        input_select (e.g. Home Mode), input_boolean, person, or device_tracker.
+        When its state matches one of the Away States below, the HVAC turns off
+        and all dampers open. Any other state (Home, Bypass, Guest, …) runs
+        normal climate control. Leave blank to disable.
       default: {}
       selector:
         entity: {}
+
+    away_states:
+      name: Away States
+      description: >
+        Comma-separated list of states that count as "away" (case-insensitive).
+        Any state NOT listed — such as Bypass — runs normal climate control.
+      default: "away, vacation, off, not_home"
+      selector:
+        text: {}
 
     outdoor_sensor:
       name: Outdoor Temperature Sensor (optional)
@@ -531,6 +543,7 @@ variables:
   # ---------------------------------------------------------------------------
   thermostat: !input thermostat
   away_entity: !input away_entity
+  away_states_raw: !input away_states
   outdoor_sensor_id: !input outdoor_sensor
   outdoor_heat_suppress: !input outdoor_heat_suppress_above
   outdoor_cool_suppress: !input outdoor_cool_suppress_below
@@ -589,9 +602,13 @@ variables:
   # ---------------------------------------------------------------------------
   # L2: Global computed state
   # ---------------------------------------------------------------------------
+  # Only states listed in away_states count as away; everything else
+  # (Home, Bypass, …) is normal operation.
   is_away: >
     {% if away_entity is string and away_entity != '' %}
-      {{ states(away_entity) in ['off', 'away', 'not_home'] }}
+      {% set away_list = away_states_raw.split(',') | map('trim') | map('lower')
+                         | reject('eq', '') | list %}
+      {{ states(away_entity) | lower | trim in away_list }}
     {% else %}
       false
     {% endif %}
