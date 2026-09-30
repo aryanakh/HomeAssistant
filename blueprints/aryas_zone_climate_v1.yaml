@@ -23,6 +23,8 @@ blueprint:
     - Mode-switch hysteresis: ties always favour the current HVAC mode to
       avoid unnecessary heat ↔ cool transitions
     - Immediate re-trigger when any room crosses its min or max threshold
+    - Relief rooms: a main + backup relief damper held open while heating or
+      cooling so the blower never pushes against mostly-closed ducts
 
     ## Damper Wiring (Normally-Open Relay Board)
     Switch OFF → damper open (air flows)
@@ -188,6 +190,52 @@ blueprint:
       default: "08:00:00"
       selector:
         time: {}
+
+    # -------------------------------------------------------------------------
+    # RELIEF (static-pressure protection)
+    # -------------------------------------------------------------------------
+    relief_primary_room:
+      name: Main Relief Room
+      description: >
+        While heating or cooling, this room's damper is held open so the blower
+        always has somewhere to push air, even if it doesn't need conditioning.
+        It is skipped if the room would be harmed by the air — heating a
+        cool_only room or one already above its max, cooling a heat_only room
+        or one already below its min — and the backup relief room opens instead.
+      default: "none"
+      selector:
+        select:
+          options:
+            - label: "None"
+              value: "none"
+            - label: "Room 1"
+              value: "1"
+            - label: "Room 2"
+              value: "2"
+            - label: "Room 3"
+              value: "3"
+            - label: "Room 4"
+              value: "4"
+
+    relief_backup_room:
+      name: Backup Relief Room
+      description: >
+        Opens only when the main relief room can't take the air (see above).
+        Always held open in that case, as the last line of pressure protection.
+      default: "none"
+      selector:
+        select:
+          options:
+            - label: "None"
+              value: "none"
+            - label: "Room 1"
+              value: "1"
+            - label: "Room 2"
+              value: "2"
+            - label: "Room 3"
+              value: "3"
+            - label: "Room 4"
+              value: "4"
 
     # -------------------------------------------------------------------------
     # ROOM 1
@@ -554,6 +602,8 @@ variables:
   sp_step: !input setpoint_step
   night_start: !input night_start_time
   night_end: !input night_end_time
+  relief_primary: !input relief_primary_room
+  relief_backup: !input relief_backup_room
 
   r1_name: !input room1_name
   r1_sensor: !input room1_sensor
@@ -793,8 +843,9 @@ variables:
   #   - HVAC heating: open only if room needs heat; all others closed
   #   - HVAC cooling: open only if room needs cool; all others closed
   #   - Room not in active list (disabled / schedule off): open
+  #   - Relief room (L9) is forced open on top of these while heating/cooling
   # ---------------------------------------------------------------------------
-  room1_damper_open: >
+  room1_damper_base: >
     {% set r = rooms | selectattr('id', 'eq', 1) | list %}
     {% if r | length == 0 %}
       true
@@ -810,7 +861,7 @@ variables:
       true
     {% endif %}
 
-  room2_damper_open: >
+  room2_damper_base: >
     {% set r = rooms | selectattr('id', 'eq', 2) | list %}
     {% if r | length == 0 %}
       true
@@ -826,7 +877,7 @@ variables:
       true
     {% endif %}
 
-  room3_damper_open: >
+  room3_damper_base: >
     {% set r = rooms | selectattr('id', 'eq', 3) | list %}
     {% if r | length == 0 %}
       true
@@ -842,7 +893,7 @@ variables:
       true
     {% endif %}
 
-  room4_damper_open: >
+  room4_damper_base: >
     {% set r = rooms | selectattr('id', 'eq', 4) | list %}
     {% if r | length == 0 %}
       true
@@ -857,6 +908,46 @@ variables:
     {% else %}
       true
     {% endif %}
+
+  # ---------------------------------------------------------------------------
+  # L9: Relief room — keeps at least one extra air path open while the
+  # HVAC is heating or cooling (static-pressure protection).
+  #
+  # Main relief is used unless the air would push it the wrong way:
+  #   heating → skip if eff_rule is cool_only or temp > max
+  #   cooling → skip if eff_rule is heat_only or temp < min
+  # Rooms not in the active list (disabled / off-schedule / cool-disabled
+  # cool_only) or with stale sensors are always acceptable.
+  # Backup relief takes over when main is skipped. 0 = no relief room.
+  # ---------------------------------------------------------------------------
+  relief_primary_ok: >
+    {% set r = rooms | selectattr('id', 'eq', relief_primary | int(0)) | list %}
+    {% if relief_primary == 'none' %}
+      false
+    {% elif r | length == 0 or r[0].is_stale %}
+      true
+    {% elif hvac_decision == 'heat' %}
+      {{ r[0].eff_rule != 'cool_only' and r[0].temp <= r[0].max }}
+    {% elif hvac_decision == 'cool' %}
+      {{ r[0].eff_rule != 'heat_only' and r[0].temp >= r[0].min }}
+    {% else %}
+      true
+    {% endif %}
+
+  relief_room: >
+    {% if hvac_decision not in ['heat', 'cool'] %}
+      0
+    {% elif relief_primary_ok %}
+      {{ relief_primary | int(0) }}
+    {% else %}
+      {{ relief_backup | int(0) }}
+    {% endif %}
+
+  # Final damper state = base decision OR relief override
+  room1_damper_open: "{{ room1_damper_base or relief_room | int == 1 }}"
+  room2_damper_open: "{{ room2_damper_base or relief_room | int == 2 }}"
+  room3_damper_open: "{{ room3_damper_base or relief_room | int == 3 }}"
+  room4_damper_open: "{{ room4_damper_base or relief_room | int == 4 }}"
 
 ###############################################################################
 # TRIGGERS
@@ -979,6 +1070,10 @@ action:
                 | Winner: Room {{ winning_room.id }} ({{ winning_room.name }})
                   {{ winning_room.temp }}°F [{{ winning_room.min }}–{{ winning_room.max }}°F]
                 {%- endif %}
+                {%- if relief_room | int > 0 %}
+                | Relief: Room {{ relief_room }}
+                  {{- ' (backup — main relief skipped)' if not relief_primary_ok else '' }}
+                {%- endif %}
                 {%- if heat_suppressed %}
                 | HEAT SUPPRESSED outdoor={{ outdoor_temp }}°F > {{ outdoor_heat_suppress }}°F
                 {%- endif %}
@@ -993,10 +1088,11 @@ action:
                   {%- elif r.needs_cool %} → COOL
                   {%- elif r.is_comfortable %} ✓ comfortable
                   {%- else %} ⚡ out of range (suppressed){% endif %}
-                  | damper {{ 'OPEN' if (loop.index == 1 and room1_damper_open) or
-                                        (loop.index == 2 and room2_damper_open) or
-                                        (loop.index == 3 and room3_damper_open) or
-                                        (loop.index == 4 and room4_damper_open) else 'CLOSED' }}
+                  | damper {{ 'OPEN' if (r.id == 1 and room1_damper_open) or
+                                        (r.id == 2 and room2_damper_open) or
+                                        (r.id == 3 and room3_damper_open) or
+                                        (r.id == 4 and room4_damper_open) else 'CLOSED' }}
+                  {{- ' (relief)' if r.id == relief_room | int else '' }}
                 {% endfor %}
               level: info
 
